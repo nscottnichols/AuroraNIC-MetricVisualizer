@@ -77,7 +77,7 @@ def process_all_jobs(base_dir):
 
     return node_map, results, results_int
 
-def plot_metric_heatmaps(results, output_dir):
+def plot_metric_heatmaps(results, output_dir, num_interfaces):
     """
     Generate and save separate heatmaps for each metric entry across node counts and elements.
     """
@@ -92,43 +92,45 @@ def plot_metric_heatmaps(results, output_dir):
     example_key = next(iter(results.keys()))
     num_metrics = len(results[example_key][0])
 
-    for metric_index in range(num_metrics):
-        # Create a 2D array for the current metric
-        heatmap_data = np.zeros((len(element_counts), len(node_counts)))
+    # Adjust metrics to consider interfaces
+    metrics_per_interface = num_metrics // num_interfaces
 
-        for (node_count, num_elements), all_differences in results.items():
-            x = node_counts.index(node_count)
-            y = element_counts.index(num_elements)
+    for interface_index in range(num_interfaces):
+        for metric_index in range(metrics_per_interface):
+            # Create a 2D array for the current metric
+            heatmap_data = np.zeros((len(element_counts), len(node_counts)))
 
-            # Use the raw difference for this metric index
-            metric_differences = [differences[metric_index] for differences in all_differences]
-            heatmap_data[y, x] = np.mean(metric_differences)  # Use the mean if multiple jobs provide values
+            for (node_count, num_elements), all_differences in results.items():
+                x = node_counts.index(node_count)
+                y = element_counts.index(num_elements)
 
-        # Plot the heatmap for the current metric
-        plt.figure(figsize=(10, 8))
-        plt.imshow(heatmap_data, origin='lower', aspect='auto', cmap='viridis')
-        plt.colorbar(label=f'Metric {metric_index + 1} Raw Difference')
-        plt.xticks(ticks=np.arange(len(node_counts)), labels=node_counts)
-        plt.yticks(ticks=np.arange(len(element_counts)), labels=element_counts)
-        plt.xlabel('Node Count')
-        plt.ylabel('Number of Elements')
-        plt.title(f'Heatmap for Metric {metric_index + 1}')
-        plt.grid(False)
+                # Use the raw difference for this metric index within the interface
+                metric_differences = [differences[interface_index * metrics_per_interface + metric_index] for differences in all_differences]
+                heatmap_data[y, x] = np.mean(metric_differences)  # Use the mean if multiple jobs provide values
 
-        # Save the plot
-        output_file = os.path.join(output_dir, f'metric_{metric_index + 1}_heatmap.png')
-        plt.savefig(output_file)
-        plt.close()
+            # Plot the heatmap for the current metric and interface
+            plt.figure(figsize=(10, 8))
+            plt.imshow(heatmap_data, origin='lower', aspect='auto', cmap='viridis')
+            plt.colorbar(label=f'Interface {interface_index + 1}, Metric {metric_index + 1} Raw Difference')
+            plt.xticks(ticks=np.arange(len(node_counts)), labels=node_counts)
+            plt.yticks(ticks=np.arange(len(element_counts)), labels=element_counts)
+            plt.xlabel('Node Count')
+            plt.ylabel('Number of Elements')
+            plt.title(f'Heatmap for Interface {interface_index + 1}, Metric {metric_index + 1}')
+            plt.grid(False)
+
+            # Save the plot
+            output_file = os.path.join(output_dir, f'interface_{interface_index + 1}_metric_{metric_index + 1}_heatmap.png')
+            plt.savefig(output_file)
+            plt.close()
 
 if __name__ == "__main__":
     base_directory = "/lus/gila/projects/atlas_aesp_CNDA/oneCCL_test/jobs_test"  # Update to your base directory path
     figures_directory = "figures"  # Directory to save plots
+    num_interfaces = 8  # Number of interfaces
 
     # Process all jobs and retrieve results
     node_map, job_results, job_results_int = process_all_jobs(base_directory)
 
     # Save and plot heatmaps for each metric
-    plot_metric_heatmaps(job_results, figures_directory)
-
-    # Check node_map
-    print("Node Map:", node_map)
+    plot_metric_heatmaps(job_results, figures_directory, num_interfaces)
