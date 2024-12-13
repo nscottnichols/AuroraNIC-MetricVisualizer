@@ -12,18 +12,24 @@ def parse_metric_file(filepath):
 
 def process_all_jobs(base_dir):
     """
-    Process all job directories and collect raw differences into a dictionary.
-    The dictionary structure is:
-    { (node_count, num_elements): [[raw_differences_per_metric_entry_from_each_job]] }
+    Process all job directories, create an integer map for nodes, and collect raw differences into dictionaries.
+
+    Returns:
+    - node_map: {node_name: integer}
+    - results: { (node_count, num_elements): [[raw_differences_per_metric_entry_from_each_job]] }
+    - results_int: { (node_count, num_elements): [[raw_differences_with_node_ids]] }
     """
     results = {}
+    node_map = {}
+    results_int = {}
+
     for job_dir in os.listdir(base_dir):
         job_path = os.path.join(base_dir, job_dir)
         metrics_dir = os.path.join(job_path, f"metrics_{job_dir}")
-        
+
         if not os.path.isdir(metrics_dir):
             continue  # Skip if metrics directory doesn't exist
-        
+
         for subdir in os.listdir(metrics_dir):
             if '_' in subdir:
                 try:
@@ -32,7 +38,7 @@ def process_all_jobs(base_dir):
                     continue  # Skip directories that don't match the pattern
 
                 subdir_path = os.path.join(metrics_dir, subdir)
-                
+
                 # Collect 'before' and 'after' files
                 before_files = {}
                 after_files = {}
@@ -47,6 +53,10 @@ def process_all_jobs(base_dir):
                         identifier = file.split('metric_after.')[1]
                         after_files[identifier] = os.path.join(subdir_path, file)
 
+                    # Add the identifier to the node_map if it's new
+                    if identifier not in node_map:
+                        node_map[identifier] = len(node_map)
+
                 # Ensure each 'before' file is paired with the correct 'after' file
                 for identifier in before_files.keys():
                     if identifier in after_files:
@@ -56,10 +66,16 @@ def process_all_jobs(base_dir):
                         # Compute raw differences for each metric entry
                         differences = [after - before for before, after in zip(before_metrics, after_metrics)]
 
-                        # Store results
+                        # Store results with node names
                         key = (node_count, num_elements)
                         results.setdefault(key, []).append(differences)
-    return results
+
+                        # Store results with node IDs
+                        key_int = (node_count, num_elements)
+                        differences_with_node_id = {node_map[identifier]: differences}
+                        results_int.setdefault(key_int, []).append(differences_with_node_id)
+
+    return node_map, results, results_int
 
 def plot_metric_heatmaps(results, output_dir):
     """
@@ -108,6 +124,11 @@ if __name__ == "__main__":
     base_directory = "/lus/gila/projects/atlas_aesp_CNDA/oneCCL_test/jobs_test"  # Update to your base directory path
     figures_directory = "figures"  # Directory to save plots
 
-    # Process all jobs and plot heatmaps for each metric
-    job_results = process_all_jobs(base_directory)
+    # Process all jobs and retrieve results
+    node_map, job_results, job_results_int = process_all_jobs(base_directory)
+
+    # Save and plot heatmaps for each metric
     plot_metric_heatmaps(job_results, figures_directory)
+
+    # Check node_map
+    print("Node Map:", node_map)
