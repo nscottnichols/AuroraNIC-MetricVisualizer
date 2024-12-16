@@ -113,33 +113,58 @@ def prepare_metric_array(results, num_interfaces, max_node_map_size):
 
 def plot_metric_heatmaps_from_array(metric_array, node_counts, element_counts, output_dir):
     """
-    Generate and save separate heatmaps for each metric entry across node counts and elements from the array.
+    Generate a 3x3 grid of plots for each metric index: the outer 8 plots are heatmaps for each interface,
+    and the center plot shows the sum of all the heatmaps for the current metric index.
     """
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
 
     num_interfaces, metrics_per_interface, _, _, _ = metric_array.shape
 
-    for interface_index in range(num_interfaces):
-        for metric_index in range(metrics_per_interface):
-            # Create a 2D array for the current metric
+    for metric_index in range(metrics_per_interface):
+        fig, axes = plt.subplots(3, 3, figsize=(15, 15))
+        combined_heatmap = np.zeros((len(node_counts), len(element_counts)))
+
+        plot_idx = 0
+        for interface_index in range(num_interfaces):
+            # Create a 2D array for the current metric and interface
             heatmap_data = metric_array[interface_index, metric_index, :, :, :].mean(axis=-1)
+            combined_heatmap += heatmap_data
 
             # Plot the heatmap for the current metric and interface
-            plt.figure(figsize=(10, 8))
-            plt.imshow(heatmap_data, origin='lower', aspect='auto', cmap='viridis')
-            plt.colorbar(label=f'Interface {interface_index + 1}, Metric {metric_index + 1} Raw Difference')
-            plt.xticks(ticks=np.arange(len(node_counts)), labels=node_counts)
-            plt.yticks(ticks=np.arange(len(element_counts)), labels=element_counts)
-            plt.xlabel('Node Count')
-            plt.ylabel('Number of Elements')
-            plt.title(f'Heatmap for Interface {interface_index + 1}, Metric {metric_index + 1}')
-            plt.grid(False)
+            ax = axes[plot_idx // 3, plot_idx % 3]
+            im = ax.imshow(heatmap_data, origin='lower', aspect='auto', cmap='viridis')
+            fig.colorbar(im, ax=ax)
+            ax.set_title(f'Interface {interface_index + 1}, Metric {metric_index + 1}')
+            ax.set_xticks(np.arange(len(node_counts)))
+            ax.set_xticklabels(node_counts)
+            ax.set_yticks(np.arange(len(element_counts)))
+            ax.set_yticklabels(element_counts)
+            ax.set_xlabel('Node Count')
+            ax.set_ylabel('Number of Elements')
+            plot_idx += 1
 
-            # Save the plot
-            output_file = os.path.join(output_dir, f'interface_{interface_index + 1}_metric_{metric_index + 1}_heatmap.png')
-            plt.savefig(output_file)
-            plt.close()
+        # Plot the combined heatmap in the center
+        ax = axes[1, 1]
+        im = ax.imshow(combined_heatmap, origin='lower', aspect='auto', cmap='plasma')
+        fig.colorbar(im, ax=ax)
+        ax.set_title(f'Combined Heatmap for Metric {metric_index + 1}')
+        ax.set_xticks(np.arange(len(node_counts)))
+        ax.set_xticklabels(node_counts)
+        ax.set_yticks(np.arange(len(element_counts)))
+        ax.set_yticklabels(element_counts)
+        ax.set_xlabel('Node Count')
+        ax.set_ylabel('Number of Elements')
+
+        # Remove any unused subplots
+        for i in range(plot_idx, 9):
+            if i != 4:  # Skip the center plot
+                fig.delaxes(axes[i // 3, i % 3])
+
+        plt.tight_layout()
+        output_file = os.path.join(output_dir, f'metric_{metric_index + 1}_heatmap_grid.png')
+        plt.savefig(output_file)
+        plt.close()
 
 if __name__ == "__main__":
     base_directory = "/lus/gila/projects/atlas_aesp_CNDA/oneCCL_test/jobs_test"  # Update to your base directory path
