@@ -73,13 +73,16 @@ def process_all_jobs(base_dir):
 
     return node_map, results, results_nodes
 
-def plot_metric_heatmaps(results, output_dir, num_interfaces):
+def prepare_metric_array(results, num_interfaces, max_node_map_size):
     """
-    Generate and save separate heatmaps for each metric entry across node counts and elements.
-    """
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
+    Create a multidimensional array to store the data.
+    Shape: {num_interfaces} x {metrics_per_interface} x {node_counts} x {number_of_elements} x {max_node_map_size}
 
+    Returns:
+    - metric_array: Initialized and populated array.
+    - node_counts: Sorted list of unique node counts.
+    - element_counts: Sorted list of unique element counts.
+    """
     # Extract unique node counts and element counts
     node_counts = sorted({key[0] for key in results.keys()})
     element_counts = sorted({key[1] for key in results.keys()})
@@ -91,18 +94,36 @@ def plot_metric_heatmaps(results, output_dir, num_interfaces):
     # Adjust metrics to consider interfaces
     metrics_per_interface = num_metrics // num_interfaces
 
+    # Initialize the array with -1
+    metric_array = np.full((num_interfaces, metrics_per_interface, len(node_counts), len(element_counts), max_node_map_size), -1, dtype=int)
+
+    for (node_count, num_elements), all_differences in results.items():
+        x = node_counts.index(node_count)
+        y = element_counts.index(num_elements)
+
+        for interface_index in range(num_interfaces):
+            for metric_index in range(metrics_per_interface):
+                z = interface_index * metrics_per_interface + metric_index
+                metric_differences = [differences[z] for differences in all_differences]
+
+                for node_id, value in enumerate(metric_differences):
+                    metric_array[interface_index, metric_index, x, y, node_id] = value
+
+    return metric_array, node_counts, element_counts
+
+def plot_metric_heatmaps_from_array(metric_array, node_counts, element_counts, output_dir):
+    """
+    Generate and save separate heatmaps for each metric entry across node counts and elements from the array.
+    """
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
+    num_interfaces, metrics_per_interface, _, _, _ = metric_array.shape
+
     for interface_index in range(num_interfaces):
         for metric_index in range(metrics_per_interface):
             # Create a 2D array for the current metric
-            heatmap_data = np.zeros((len(element_counts), len(node_counts)))
-
-            for (node_count, num_elements), all_differences in results.items():
-                x = node_counts.index(node_count)
-                y = element_counts.index(num_elements)
-
-                # Use the raw difference for this metric index within the interface
-                metric_differences = [differences[interface_index * metrics_per_interface + metric_index] for differences in all_differences]
-                heatmap_data[y, x] = np.mean(metric_differences)  # Use the mean if multiple jobs provide values
+            heatmap_data = metric_array[interface_index, metric_index, :, :, :].mean(axis=-1)
 
             # Plot the heatmap for the current metric and interface
             plt.figure(figsize=(10, 8))
@@ -128,5 +149,8 @@ if __name__ == "__main__":
     # Process all jobs and retrieve results
     node_map, job_results, job_results_nodes = process_all_jobs(base_directory)
 
+    # Prepare the multidimensional array
+    metric_array, node_counts, element_counts = prepare_metric_array(job_results, num_interfaces, max((len(node_list) for node_list in job_results_nodes.values()), default=0))
+
     # Save and plot heatmaps for each metric
-    plot_metric_heatmaps(job_results, figures_directory, num_interfaces)
+    plot_metric_heatmaps_from_array(metric_array, node_counts, element_counts, figures_directory)
