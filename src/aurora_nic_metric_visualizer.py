@@ -17,11 +17,11 @@ def process_all_jobs(base_dir):
     Returns:
     - node_map: {node_name: integer}
     - results: { (node_count, num_elements): [[raw_differences_per_metric_entry_from_each_job]] }
-    - results_int: { (node_count, num_elements): [[raw_differences_with_node_ids]] }
+    - results_nodes: { (node_count, num_elements): [[node_list_corresponding_to_node_map]] }
     """
     results = {}
     node_map = {}
-    results_int = {}
+    results_nodes = {}
 
     for job_dir in os.listdir(base_dir):
         job_path = os.path.join(base_dir, job_dir)
@@ -69,13 +69,9 @@ def process_all_jobs(base_dir):
                         # Store results with node names
                         key = (node_count, num_elements)
                         results.setdefault(key, []).append(differences)
+                        results_nodes.setdefault(key, []).append(node_map[identifier])
 
-                        # Store results with node IDs
-                        key_int = (node_count, num_elements)
-                        differences_with_node_id = {node_map[identifier]: differences}
-                        results_int.setdefault(key_int, []).append(differences_with_node_id)
-
-    return node_map, results, results_int
+    return node_map, results, results_nodes
 
 def plot_metric_heatmaps(results, output_dir, num_interfaces):
     """
@@ -130,7 +126,7 @@ if __name__ == "__main__":
     num_interfaces = 8  # Number of interfaces
 
     # Process all jobs and retrieve results
-    node_map, job_results, job_results_int = process_all_jobs(base_directory)
+    node_map, job_results, job_results_nodes = process_all_jobs(base_directory)
 
     # Save and plot heatmaps for each metric
     plot_metric_heatmaps(job_results, figures_directory, num_interfaces)
