@@ -73,10 +73,10 @@ def process_all_jobs(base_dir):
 
     return node_map, results, results_nodes
 
-def prepare_metric_array(results, num_interfaces, max_node_map_size):
+def prepare_metric_array(results, num_interfaces, max_nodes):
     """
     Create a multidimensional array to store the data.
-    Shape: {num_interfaces} x {metrics_per_interface} x {node_counts} x {number_of_elements} x {max_node_map_size}
+    Shape: {num_interfaces} x {metrics_per_interface} x {node_counts} x {number_of_elements} x {max_nodes}
 
     Returns:
     - metric_array: Initialized and populated array.
@@ -95,7 +95,7 @@ def prepare_metric_array(results, num_interfaces, max_node_map_size):
     metrics_per_interface = num_metrics // num_interfaces
 
     # Initialize the array with -1
-    metric_array = np.full((num_interfaces, metrics_per_interface, len(node_counts), len(element_counts), max_node_map_size), -1, dtype=int)
+    metric_array = np.full((num_interfaces, metrics_per_interface, len(node_counts), len(element_counts), max_nodes), -1, dtype=int)
 
     for (node_count, num_elements), all_differences in results.items():
         x = node_counts.index(node_count)
