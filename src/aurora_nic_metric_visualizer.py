@@ -142,9 +142,13 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
     )
     def update_figure(selected_metric_index):
         # Create a 3x3 subplot figure
-        fig = make_subplots(rows=3, cols=3,
-                            subplot_titles=[f"Interface {i+1}, Metric {selected_metric_index+1}" for i in range(num_interfaces)] + [""]* (9 - num_interfaces),
-                            vertical_spacing=0.05, horizontal_spacing=0.05)
+        fig = make_subplots(
+            rows=3, cols=3,
+            subplot_titles=[f"Interface {i+1}, Metric {selected_metric_index+1}" for i in range(num_interfaces)] + [""]*(9 - num_interfaces),
+            vertical_spacing=0.05, horizontal_spacing=0.05,
+            shared_xaxes=False,
+            shared_yaxes=False
+        )
 
         # Compute the 8 interface heatmaps for the selected metric
         # Each heatmap is (node_counts, element_counts), averaged over nodes
@@ -167,48 +171,90 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
 
         # Positions of the subplots:
         # We'll place interfaces in the outer 8 subplots (ignoring the center)
-        # and the combined in the center (2,2) in 1-based indexing.
+        # and the combined in the center (2, 2) in 1-based indexing.
         # The layout (0-based indexing for code reference):
-        # (1,1) is the center subplot in 0-based, but plotly is 1-based indexing so center is (2,2).
+        # (1, 1) is the center subplot in 0-based, but plotly is 1-based indexing so center is (2, 2).
         # Let's define the subplot order (row, col) for the 8 interfaces:
         positions = [(1,1), (1,2), (1,3),
-                     (2,1),         (2,3),
+                     (2,1),        (2,3),
                      (3,1), (3,2), (3,3)]
-        
-        # Add each interface heatmap
+    
+        # Axis name mapping for reference:
+        # (1,1) -> xaxis, yaxis
+        # (1,2) -> xaxis2, yaxis2
+        # (1,3) -> xaxis3, yaxis3
+        # (2,1) -> xaxis4, yaxis4
+        # (2,2) -> xaxis5, yaxis5
+        # (2,3) -> xaxis6, yaxis6
+        # (3,1) -> xaxis7, yaxis7
+        # (3,2) -> xaxis8, yaxis8
+        # (3,3) -> xaxis9, yaxis9
+    
+        # Create a helper to get the x/y anchor names
+        def subplot_axis_names(r, c):
+            idx = (r - 1) * 3 + c
+            # The first subplot: x,y
+            # Subsequent subplots: x2,y2; x3,y3; etc.
+            x_ref = 'x' if idx == 1 else f'x{idx}'
+            return x_ref
+    
+        # We'll use indices for plotting, then map ticks
+        x_indices = list(range(len(node_counts)))
+        y_indices = list(range(len(element_counts)))
+    
+        # Add the 8 interface heatmaps
         for i, hm_data in enumerate(interface_heatmaps):
             r, c = positions[i]
             fig.add_trace(
                 go.Heatmap(
                     z=hm_data.T,
-                    x=node_counts,
-                    y=element_counts,
+                    x=x_indices,
+                    y=y_indices,
                     colorscale='Viridis',
                     colorbar=dict(title='Value'),
-                    hovertemplate="Node Count: %{x}<br>Elements: %{y}<br>Value: %{z}<extra></extra>"
+                    hovertemplate="Node Count: %{x}<br>Elements: %{y}<br>Value: %{z}<extra></extra>",
+                    xgap=1,  # spacing between cells
+                    ygap=1
                 ),
                 row=r, col=c
             )
-        
-        # Add combined in the center (2,2)
+
+        # Add the combined heatmap in the center (2, 2)
         fig.add_trace(
             go.Heatmap(
                 z=combined_heatmap.T,
-                x=node_counts,
-                y=element_counts,
+                x=x_indices,
+                y=y_indices,
                 colorscale='Plasma',
-                colorbar=dict(title='Value'),
-                hovertemplate="Node Count: %{x}<br>Elements: %{y}<br>Combined: %{z}<extra></extra>"
+                colorbar=dict(title='Combined'),
+                hovertemplate="Node Count: %{x}<br>Elements: %{y}<br>Combined: %{z}<extra></extra>",
+                xgap=1,
+                ygap=1
             ),
             row=2, col=2
         )
 
-        # Update axes labels
-        for r in range(1,4):
-            for c in range(1,4):
-                # If subplot exists
-                fig.update_xaxes(title_text="Node Count", row=r, col=c)
-                fig.update_yaxes(title_text="Elements", row=r, col=c)
+        # Update axes for each subplot to show labels and enforce square cells
+        for r in range(1, 4):
+            for c in range(1, 4):
+                x_ref = subplot_axis_names(r, c)
+                # Map tickvals to actual node/element values
+                fig.update_xaxes(
+                    title_text="Node Count",
+                    tickmode='array',
+                    tickvals=x_indices,
+                    ticktext=node_counts,
+                    row=r, col=c
+                )
+                fig.update_yaxes(
+                    title_text="Elements",
+                    tickmode='array',
+                    tickvals=y_indices,
+                    ticktext=element_counts,
+                    scaleanchor=x_ref,  # Anchor y to its respective x axis
+                    scaleratio=1,
+                    row=r, col=c
+                )
 
         fig.update_layout(
             title=f"Selected Metric: {selected_metric_index+1}",
