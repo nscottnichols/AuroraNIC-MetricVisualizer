@@ -110,15 +110,15 @@ def prepare_metric_array(results, num_interfaces, max_nodes):
     return metric_array, node_counts, element_counts
 
 # New interactive plotting function with Plotly and Dash
-def run_interactive_dash_app(metric_array, node_counts, element_counts):
+def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_names):
     # Dimensions
     num_interfaces, metrics_per_interface, _, _, _ = metric_array.shape
 
     # Create the Dash app
     app = Dash(__name__)
 
-    # Prepare dropdown options for metric selection
-    metric_options = [{'label': f"Metric {i+1}", 'value': i} for i in range(metrics_per_interface)]
+    # Use the provided metric_names for dropdown options
+    metric_options = [{'label': metric_names[i], 'value': i} for i in range(metrics_per_interface)]
 
     # Layout: Dropdown + Figure
     app.layout = html.Div([
@@ -193,11 +193,11 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
         positions = [(1,1), (1,2), (1,3),
                      (2,1),        (2,3),
                      (3,1), (3,2), (3,3)]
-    
+
         # We'll use indices for plotting, then map ticks to correct ranges
         x_indices = list(range(Nx))
         y_indices = list(range(Ny))
-    
+
         # Add the 8 interface heatmaps
         for i, hm_data in enumerate(interface_heatmaps):
             r, c = positions[i]
@@ -262,16 +262,16 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
 
         # Make the figure square
         fig.update_layout(
-            title=f"Selected Metric: {selected_metric_index+1}",
+            title=f"Selected Metric: {metric_names[selected_metric_index]}",
             width=1000,
             height=1000,
             coloraxis=dict(
                 colorscale='Viridis',
                 colorbar=dict(
                     title='Value',
-                    x=1.08,  # move the colorbar slightly to the right of the subplots
+                    x=1.03,  # move the colorbar slightly to the right of the subplots
                     y=0.5,
-                    len=0.8
+                    len=1.0
                 )
             ),
             coloraxis2=dict(
@@ -280,7 +280,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
                     title='Combined',
                     x=1.15,  # place this colorbar a bit further to avoid overlap
                     y=0.5,
-                    len=0.8
+                    len=1.0
                 )
             ),
             margin=dict(l=50, r=150, t=50, b=50)
@@ -289,7 +289,8 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
         return fig
 
     # Run the Dash app
-    app.run_server(debug=False, host='0.0.0.0', port=8050)
+    #app.run_server(debug=False, host='0.0.0.0', port=8050)
+    app.run_server(debug=False, host='0.0.0.0', port=13717)
 
 if __name__ == "__main__":
     base_directory = "/lus/gila/projects/atlas_aesp_CNDA/oneCCL_test/jobs_test"  # Update to your base directory path
@@ -305,5 +306,22 @@ if __name__ == "__main__":
         max((len(node_list) for node_list in job_results_nodes.values()), default=0)
     )
 
+    # Determine how many metrics per interface
+    # metric_array shape: (num_interfaces, metrics_per_interface, ...)
+    _, metrics_per_interface, _, _, _ = metric_array.shape
+
+    # Read metric names from file
+    metric_names_file = "metric_names.txt"  # Update to your metric names file path
+    if os.path.isfile(metric_names_file):
+        with open(metric_names_file, 'r') as f:
+            all_names = [line.strip() for line in f.readlines()]
+    else:
+        # Fallback if file not found
+        all_names = []
+
+    # If the file doesn't have enough names, fill with generic names
+    if len(all_names) < metrics_per_interface:
+        all_names += [f"Metric_{i+1}" for i in range(len(all_names), metrics_per_interface)]
+
     # Run the interactive Dash app
-    run_interactive_dash_app(metric_array, node_counts, element_counts)
+    run_interactive_dash_app(metric_array, node_counts, element_counts, all_names)
