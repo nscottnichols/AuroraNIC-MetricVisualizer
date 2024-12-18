@@ -210,7 +210,8 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
                     colorbar=dict(title='Value'),
                     hovertemplate="Node Count: %{x}<br>Elements: %{y}<br>Value: %{z}<extra></extra>",
                     xgap=1,  # spacing between cells
-                    ygap=1
+                    ygap=1,
+                    coloraxis="coloraxis"  # Shared coloraxis for all outer plots
                 ),
                 row=r, col=c
             )
@@ -225,7 +226,8 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
                 colorbar=dict(title='Combined'),
                 hovertemplate="Node Count: %{x}<br>Elements: %{y}<br>Combined: %{z}<extra></extra>",
                 xgap=1,
-                ygap=1
+                ygap=1,
+                coloraxis="coloraxis2"  # Separate coloraxis for combined
             ),
             row=2, col=2
         )
@@ -262,7 +264,26 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
         fig.update_layout(
             title=f"Selected Metric: {selected_metric_index+1}",
             width=1000,
-            height=1000
+            height=1000,
+            coloraxis=dict(
+                colorscale='Viridis',
+                colorbar=dict(
+                    title='Value',
+                    x=1.08,  # move the colorbar slightly to the right of the subplots
+                    y=0.5,
+                    len=0.8
+                )
+            ),
+            coloraxis2=dict(
+                colorscale='Plasma',
+                colorbar=dict(
+                    title='Combined',
+                    x=1.15,  # place this colorbar a bit further to avoid overlap
+                    y=0.5,
+                    len=0.8
+                )
+            ),
+            margin=dict(l=50, r=150, t=50, b=50)
         )
 
         return fig
