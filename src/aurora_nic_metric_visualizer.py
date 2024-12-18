@@ -141,10 +141,13 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
         Input('metric-dropdown', 'value')
     )
     def update_figure(selected_metric_index):
+        Nx = len(node_counts)
+        Ny = len(element_counts)
         # Create a 3x3 subplot figure
         fig = make_subplots(
             rows=3, cols=3,
-            subplot_titles=[f"Interface {i+1}, Metric {selected_metric_index+1}" for i in range(num_interfaces)] + [""]*(9 - num_interfaces),
+            subplot_titles=[f"Interface {i+1}, Metric {selected_metric_index+1}" 
+                            for i in range(num_interfaces)] + [""]*(9 - num_interfaces),
             vertical_spacing=0.05, horizontal_spacing=0.05,
             shared_xaxes=False,
             shared_yaxes=False
@@ -179,28 +182,9 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
                      (2,1),        (2,3),
                      (3,1), (3,2), (3,3)]
     
-        # Axis name mapping for reference:
-        # (1,1) -> xaxis, yaxis
-        # (1,2) -> xaxis2, yaxis2
-        # (1,3) -> xaxis3, yaxis3
-        # (2,1) -> xaxis4, yaxis4
-        # (2,2) -> xaxis5, yaxis5
-        # (2,3) -> xaxis6, yaxis6
-        # (3,1) -> xaxis7, yaxis7
-        # (3,2) -> xaxis8, yaxis8
-        # (3,3) -> xaxis9, yaxis9
-    
-        # Create a helper to get the x/y anchor names
-        def subplot_axis_names(r, c):
-            idx = (r - 1) * 3 + c
-            # The first subplot: x,y
-            # Subsequent subplots: x2,y2; x3,y3; etc.
-            x_ref = 'x' if idx == 1 else f'x{idx}'
-            return x_ref
-    
-        # We'll use indices for plotting, then map ticks
-        x_indices = list(range(len(node_counts)))
-        y_indices = list(range(len(element_counts)))
+        # We'll use indices for plotting, then map ticks to correct ranges
+        x_indices = list(range(Nx))
+        y_indices = list(range(Ny))
     
         # Add the 8 interface heatmaps
         for i, hm_data in enumerate(interface_heatmaps):
@@ -234,16 +218,16 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
             row=2, col=2
         )
 
-        # Update axes for each subplot to show labels and enforce square cells
+        # Update axes for each subplot to show labels and correct ticks and ranges
         for r in range(1, 4):
             for c in range(1, 4):
-                x_ref = subplot_axis_names(r, c)
                 # Map tickvals to actual node/element values
                 fig.update_xaxes(
                     title_text="Node Count",
                     tickmode='array',
                     tickvals=x_indices,
                     ticktext=node_counts,
+                    range=[-0.5, Nx - 0.5],
                     row=r, col=c
                 )
                 fig.update_yaxes(
@@ -251,15 +235,15 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
                     tickmode='array',
                     tickvals=y_indices,
                     ticktext=element_counts,
-                    scaleanchor=x_ref,  # Anchor y to its respective x axis
-                    scaleratio=1,
+                    range=[-0.5, Ny - 0.5],
                     row=r, col=c
                 )
 
+        # Make the figure square
         fig.update_layout(
             title=f"Selected Metric: {selected_metric_index+1}",
-            height=1000,
-            width=1000
+            width=1000,
+            height=1000
         )
 
         return fig
