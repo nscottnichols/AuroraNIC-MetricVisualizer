@@ -114,33 +114,66 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
     # Dimensions
     num_interfaces, metrics_per_interface, _, _, _ = metric_array.shape
 
+    # Determine which metrics are all zero:
+    # For each metric_index, check all interfaces and all data points
+    # Convert -1 to nan for checking actual sums
+    mask = (metric_array == -1)
+    data_filled = np.where(mask, np.nan, metric_array)
+
+    # Sum absolute values to ensure we catch negative differences if any
+    metric_sums = np.nansum(np.abs(data_filled), axis=(0,2,3,4)) # sum over interfaces, node_counts, element_counts, max_nodes
+    zero_metrics = (metric_sums == 0)
+
+    # All metric options (including zero ones)
+    all_metric_options = [{'label': metric_names[i], 'value': i} for i in range(metrics_per_interface)]
+
+    # Non-zero metric options
+    nonzero_metric_options = [{'label': metric_names[i], 'value': i} for i in range(metrics_per_interface) if not zero_metrics[i]]
+
     # Create the Dash app
     app = Dash(__name__)
-
-    # Use the provided metric_names for dropdown options
-    metric_options = [{'label': metric_names[i], 'value': i} for i in range(metrics_per_interface)]
 
     # Layout: Dropdown + Figure
     app.layout = html.Div([
         html.H1("Interactive Heatmap Analysis for Metric Differences", style={'textAlign': 'center'}),
         html.Div([
+            html.Label("Show only non-zero metrics:"),
+            dcc.Checklist(
+                id='hide-zero-metrics',
+                options=[{'label': '', 'value': 'hide'}],
+                value=[],  # by default show all metrics
+                style={'display': 'inline-block', 'margin-right': '20px'}
+            ),
             html.Label("Select Metric:"),
             dcc.Dropdown(
                 id='metric-dropdown',
-                options=metric_options,
                 value=0,  # default selected metric index
                 clearable=False,
-                style={'width': '300px'}
+                style={'width': '300px', 'display': 'inline-block', 'margin-left': '20px'}
             )
         ], style={'textAlign': 'center', 'margin': '20px'}),
         dcc.Graph(id='heatmap-figure')
     ])
 
+    # Callback to update the dropdown options based on the hide-zero-metrics checkbox
+    @app.callback(
+        Output('metric-dropdown', 'options'),
+        Input('hide-zero-metrics', 'value')
+    )
+    def update_dropdown_options(hide_zero):
+        if 'hide' in hide_zero:
+            # Return only non-zero metrics
+            return nonzero_metric_options
+        else:
+            # Return all metrics
+            return all_metric_options
+
     @app.callback(
         Output('heatmap-figure', 'figure'),
-        Input('metric-dropdown', 'value')
+        Input('metric-dropdown', 'value'),
+        Input('hide-zero-metrics', 'value')
     )
-    def update_figure(selected_metric_index):
+    def update_figure(selected_metric_index, hide_zero):
         Nx = len(node_counts)
         Ny = len(element_counts)
 
@@ -207,7 +240,6 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                     x=x_indices,
                     y=y_indices,
                     colorscale='Viridis',
-                    colorbar=dict(title='Value'),
                     hovertemplate="Node Count: %{x}<br>Elements: %{y}<br>Value: %{z}<extra></extra>",
                     xgap=1,  # spacing between cells
                     ygap=1,
@@ -223,7 +255,6 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                 x=x_indices,
                 y=y_indices,
                 colorscale='Plasma',
-                colorbar=dict(title='Combined'),
                 hovertemplate="Node Count: %{x}<br>Elements: %{y}<br>Combined: %{z}<extra></extra>",
                 xgap=1,
                 ygap=1,
