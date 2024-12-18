@@ -19,7 +19,7 @@ def process_all_jobs(base_dir):
     Returns:
     - node_map: {node_name: integer}
     - results: { (node_count, num_elements): [[raw_differences_per_metric_entry_from_each_job]] }
-    - results_nodes: { (node_count, num_elements): [[node_list_corresponding_to_node_map]] }
+    - results_nodes: { (node_count, num_elements): [list_of_node_ids_corresponding_to_node_map] }
     """
     results = {}
     node_map = {}
@@ -86,6 +86,9 @@ def prepare_metric_array(results, num_interfaces, max_nodes):
     element_counts = sorted({key[1] for key in results.keys()})
 
     # Determine number of metrics based on the first entry
+    if not results:
+        # Handle empty results case
+        return None, [], []
     example_key = next(iter(results.keys()))
     num_metrics = len(results[example_key][0])
 
@@ -110,9 +113,12 @@ def prepare_metric_array(results, num_interfaces, max_nodes):
     return metric_array, node_counts, element_counts
 
 # New interactive plotting function with Plotly and Dash
-def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_names):
+def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_names, node_map, results_nodes):
     # Dimensions
-    num_interfaces, metrics_per_interface, _, _, _ = metric_array.shape
+    num_interfaces, metrics_per_interface, Nx, Ny, max_nodes = metric_array.shape
+
+    # Reverse the node_map to get node_name from node_id
+    reverse_node_map = {v: k for k, v in node_map.items()}
 
     # Determine which metrics are all zero:
     # For each metric_index, check all interfaces and all data points
@@ -129,6 +135,30 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
 
     # Non-zero metric options
     nonzero_metric_options = [{'label': metric_names[i], 'value': i} for i in range(metrics_per_interface) if not zero_metrics[i]]
+
+    # Build a dictionary of nodes_for_node_count
+    # nodes_for_node_count[node_count] = set of node names that appear in that node_count column (across all elements)
+    nodes_for_node_count = {nc: set() for nc in node_counts}
+    for (nc, ne), node_ids in results_nodes.items():
+        for nid in node_ids:
+            node_name = reverse_node_map[nid]
+            nodes_for_node_count[nc].add(node_name)
+
+    # Create node dropdowns for each node_count
+    node_dropdowns = []
+    for nc in node_counts:
+        node_dropdowns.append(
+            html.Div([
+                html.Label(f"Select Nodes for Node Count {nc}:"),
+                dcc.Dropdown(
+                    id=f'node-dropdown-{nc}',
+                    options=[{'label': n, 'value': n} for n in sorted(nodes_for_node_count[nc])],
+                    multi=True,
+                    placeholder="Select nodes (default: all)",
+                    style={'width': '400px'}
+                )
+            ], style={'margin': '20px'})
+        )
 
     # Create the Dash app
     app = Dash(__name__)
@@ -152,6 +182,9 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                 style={'width': '300px', 'display': 'inline-block', 'margin-left': '20px'}
             )
         ], style={'textAlign': 'center', 'margin': '20px'}),
+
+        html.Div(node_dropdowns, style={'textAlign': 'center'}),
+
         dcc.Graph(id='heatmap-figure')
     ])
 
@@ -168,14 +201,22 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             # Return all metrics
             return all_metric_options
 
+    # Build a list of Inputs for each node-dropdown
+    node_inputs = [Input(f'node-dropdown-{nc}', 'value') for nc in node_counts]
+
     @app.callback(
         Output('heatmap-figure', 'figure'),
-        Input('metric-dropdown', 'value'),
-        Input('hide-zero-metrics', 'value')
+        [Input('metric-dropdown', 'value'), Input('hide-zero-metrics', 'value')] + node_inputs
     )
-    def update_figure(selected_metric_index, hide_zero):
-        Nx = len(node_counts)
-        Ny = len(element_counts)
+    def update_figure(selected_metric_index, hide_zero, *node_selections):
+        # node_selections corresponds to each node_count in node_counts
+        selected_nodes_by_nc = {}
+        for i, nc in enumerate(node_counts):
+            selected_nodes = node_selections[i]
+            # If None or empty, use all nodes for that node_count
+            if not selected_nodes:
+                selected_nodes = nodes_for_node_count[nc]
+            selected_nodes_by_nc[nc] = set(selected_nodes)
 
         subplot_titles = [
             "Interface 1",
@@ -201,21 +242,42 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         # Compute the 8 interface heatmaps for the selected metric
         # Each heatmap is (node_counts, element_counts), averaged over nodes
         # metric_array: (num_interfaces, metrics_per_interface, node_counts, element_counts, max_nodes)
-        # We'll take sum along the last axis (nodes) to get a 2D array
+        # We'll compute the interface_heatmaps with per-(node_count, element_count) filtering
         interface_heatmaps = []
         for interface_index in range(num_interfaces):
-            data_2d = metric_array[interface_index, selected_metric_index, :, :, :]
-            # Replace -1 with np.nan for sum calculation
-            data_2d = np.where(data_2d == -1, np.nan, data_2d)
-            heatmap_data = np.nansum(data_2d, axis=-1)
-            # If all are nan, set to zeros
-            heatmap_data = np.nan_to_num(heatmap_data, nan=0)
-            interface_heatmaps.append(heatmap_data)
+            # We'll build a 2D array (Nx, Ny) by summing over the filtered nodes
+            hm_data = np.zeros((Nx, Ny))
+            hm_data[:] = np.nan  # start with nan to use nanmean/sum if needed
+
+            # Walk through each (x,y) cell
+            # (x,y) corresponds to node_counts[x], element_counts[y]
+            for x in range(Nx):
+                nc = node_counts[x]
+                allowed_nodes = selected_nodes_by_nc[nc]  # allowed node names for this node_count
+                for y in range(Ny):
+                    ne = element_counts[y]
+                    node_ids = results_nodes.get((nc, ne), [])
+                    # Filter node_ids by allowed_nodes
+                    filtered_values = []
+                    for nid in node_ids:
+                        node_name = reverse_node_map[nid]
+                        if node_name in allowed_nodes:
+                            node_pos = node_ids.index(nid)
+                            val = metric_array[interface_index, selected_metric_index, x, y, node_pos]
+                            if val != -1:
+                                filtered_values.append(val)
+
+                    if filtered_values:
+                        hm_data[x, y] = np.nansum(filtered_values)
+                    else:
+                        hm_data[x, y] = 0  # or np.nan if you prefer
+
+            # If there are nans, replace them with 0
+            hm_data = np.nan_to_num(hm_data, nan=0)
+            interface_heatmaps.append(hm_data)
 
         # Compute combined heatmap (sum of all interfaces)
-        combined_heatmap = np.zeros_like(interface_heatmaps[0])
-        for hm in interface_heatmaps:
-            combined_heatmap += hm
+        combined_heatmap = np.sum(interface_heatmaps, axis=0)
 
         # Positions of the subplots:
         # We'll place interfaces in the outer 8 subplots (ignoring the center)
@@ -300,7 +362,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                 colorscale='Viridis',
                 colorbar=dict(
                     title='Value',
-                    x=1.03,  # move the colorbar slightly to the right of the subplots
+                    x=1.01,  # move the colorbar slightly to the right of the subplots
                     y=0.5,
                     len=1.0
                 )
@@ -337,6 +399,11 @@ if __name__ == "__main__":
         max((len(node_list) for node_list in job_results_nodes.values()), default=0)
     )
 
+    # Early exit if no data found
+    if metric_array is None:
+        print("No data found.")
+        exit(0)
+
     # Determine how many metrics per interface
     # metric_array shape: (num_interfaces, metrics_per_interface, ...)
     _, metrics_per_interface, _, _, _ = metric_array.shape
@@ -355,4 +422,4 @@ if __name__ == "__main__":
         all_names += [f"Metric_{i+1}" for i in range(len(all_names), metrics_per_interface)]
 
     # Run the interactive Dash app
-    run_interactive_dash_app(metric_array, node_counts, element_counts, all_names)
+    run_interactive_dash_app(metric_array, node_counts, element_counts, metric_names=all_names, node_map=node_map, results_nodes=job_results_nodes)
