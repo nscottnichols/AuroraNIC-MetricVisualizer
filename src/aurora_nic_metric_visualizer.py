@@ -221,21 +221,28 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
         # Update axes for each subplot to show labels and correct ticks and ranges
         for r in range(1, 4):
             for c in range(1, 4):
+                # Determine whether to show labels based on position
+                show_x_labels = (r == 3)
+                show_y_labels = (c == 1)
+
                 # Map tickvals to actual node/element values
                 fig.update_xaxes(
-                    title_text="Node Count",
+                    title_text="Node Count" if show_x_labels else None,
                     tickmode='array',
                     tickvals=x_indices,
-                    ticktext=node_counts,
+                    ticktext=node_counts if show_x_labels else [],
                     range=[-0.5, Nx - 0.5],
+                    showticklabels=show_x_labels,
                     row=r, col=c
                 )
+                
                 fig.update_yaxes(
-                    title_text="Elements",
+                    title_text="Elements" if show_y_labels else None,
                     tickmode='array',
                     tickvals=y_indices,
-                    ticktext=element_counts,
+                    ticktext=element_counts if show_y_labels else [],
                     range=[-0.5, Ny - 0.5],
+                    showticklabels=show_y_labels,
                     row=r, col=c
                 )
 
