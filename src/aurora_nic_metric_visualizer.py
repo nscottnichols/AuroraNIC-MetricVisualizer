@@ -168,13 +168,13 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
         # Compute the 8 interface heatmaps for the selected metric
         # Each heatmap is (node_counts, element_counts), averaged over nodes
         # metric_array: (num_interfaces, metrics_per_interface, node_counts, element_counts, max_nodes)
-        # We'll take mean along the last axis (nodes) to get a 2D array
+        # We'll take sum along the last axis (nodes) to get a 2D array
         interface_heatmaps = []
         for interface_index in range(num_interfaces):
             data_2d = metric_array[interface_index, selected_metric_index, :, :, :]
-            # Replace -1 with np.nan for mean calculation
+            # Replace -1 with np.nan for sum calculation
             data_2d = np.where(data_2d == -1, np.nan, data_2d)
-            heatmap_data = np.nanmean(data_2d, axis=-1)
+            heatmap_data = np.nansum(data_2d, axis=-1)
             # If all are nan, set to zeros
             heatmap_data = np.nan_to_num(heatmap_data, nan=0)
             interface_heatmaps.append(heatmap_data)
