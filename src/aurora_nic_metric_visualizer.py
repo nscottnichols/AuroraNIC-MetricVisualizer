@@ -143,12 +143,24 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts):
     def update_figure(selected_metric_index):
         Nx = len(node_counts)
         Ny = len(element_counts)
+
+        subplot_titles = [
+            "Interface 1",
+            "Interface 2",
+            "Interface 3",
+            "Interface 4",
+            "Combined",
+            "Interface 5",
+            "Interface 6",
+            "Interface 7",
+            "Interface 8"
+        ]
+
         # Create a 3x3 subplot figure
         fig = make_subplots(
             rows=3, cols=3,
-            subplot_titles=[f"Interface {i+1}, Metric {selected_metric_index+1}" 
-                            for i in range(num_interfaces)] + [""]*(9 - num_interfaces),
-            vertical_spacing=0.05, horizontal_spacing=0.05,
+            subplot_titles=subplot_titles,
+            vertical_spacing=0.02, horizontal_spacing=0.02,
             shared_xaxes=False,
             shared_yaxes=False
         )
