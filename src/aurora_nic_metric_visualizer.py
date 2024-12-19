@@ -116,6 +116,10 @@ def prepare_metric_array(results, num_interfaces, max_nodes):
 
 # New interactive plotting function with Plotly and Dash
 def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_names, node_map, results_nodes):
+
+    # Calculate log2 of element counts
+    log2_element_counts = np.log2(element_counts)
+
     # Dimensions
     num_interfaces, metrics_per_interface, Nx, Ny, max_nodes = metric_array.shape
 
@@ -488,14 +492,15 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
 
                 line_fig.add_trace(
                     go.Scatter(
-                        x=element_counts,
+                        x=log2_element_counts,
                         y=interface_lines[node_name],
                         mode='lines+markers',
                         name=truncated_name,
                         legendgroup=truncated_name,
                         showlegend=show_legend_flag,
                         line=dict(color=node_color),
-                        hovertemplate = "Node: " + node_name + "<br>Elements: %{x}<br>Value: %{y}<extra></extra>"
+                        customdata=element_counts,
+                        hovertemplate = "Node: " + node_name + "<br>Elements: %{customdata}<br>Value: %{y}<extra></extra>"
 
                     ),
                     row=r, col=c
@@ -511,14 +516,15 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
 
             line_fig.add_trace(
                 go.Scatter(
-                    x=element_counts,
+                    x=log2_element_counts,
                     y=combined_node_lines[node_name],
                     mode='lines+markers',
                     name=truncated_name,
                     legendgroup=truncated_name,
                     showlegend=False,  # Already shown above
                     line=dict(color=node_color),
-                    hovertemplate = "Node: " + node_name + "<br>Elements: %{x}<br>Value: %{y}<extra></extra>"
+                    customdata=element_counts,
+                    hovertemplate = "Node: " + node_name + "<br>Elements: %{customdata}<br>Value: %{y}<extra></extra>"
                 ),
                 row=combined_r, col=combined_c
             )
@@ -531,7 +537,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                 line_fig.update_xaxes(
                     title_text="Elements" if show_x_labels else None,
                     tickmode='array',
-                    tickvals=element_counts,
+                    tickvals=log2_element_counts,
                     ticktext=element_counts if show_x_labels else [],
                     showticklabels=show_x_labels,
                     row=r, col=c
