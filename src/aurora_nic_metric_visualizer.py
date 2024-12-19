@@ -483,16 +483,20 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                 if show_legend_flag:
                     seen_nodes.add(node_name)
 
+                # Extract a truncated version of the node name
+                truncated_name = node_name.split('.', 1)[0]
+
                 line_fig.add_trace(
                     go.Scatter(
                         x=element_counts,
                         y=interface_lines[node_name],
                         mode='lines+markers',
-                        name=node_name,
-                        legendgroup=node_name,
+                        name=truncated_name,
+                        legendgroup=truncated_name,
                         showlegend=show_legend_flag,
                         line=dict(color=node_color),
-                        hovertemplate="Elements: %{x}<br>Value: %{y}<extra></extra>"
+                        hovertemplate = "Node: " + node_name + "<br>Elements: %{x}<br>Value: %{y}<extra></extra>"
+
                     ),
                     row=r, col=c
                 )
@@ -501,16 +505,20 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         combined_r, combined_c = (2, 2)
         for node_name in allowed_nodes_line:
             node_color = get_node_style(node_name)
+
+            # Extract a truncated version of the node name
+            truncated_name = node_name.split('.', 1)[0]
+
             line_fig.add_trace(
                 go.Scatter(
                     x=element_counts,
                     y=combined_node_lines[node_name],
                     mode='lines+markers',
-                    name=node_name,
-                    legendgroup=node_name,
+                    name=truncated_name,
+                    legendgroup=truncated_name,
                     showlegend=False,  # Already shown above
                     line=dict(color=node_color),
-                    hovertemplate="Elements: %{x}<br>Combined: %{y}<extra></extra>"
+                    hovertemplate = "Node: " + node_name + "<br>Elements: %{x}<br>Value: %{y}<extra></extra>"
                 ),
                 row=combined_r, col=combined_c
             )
