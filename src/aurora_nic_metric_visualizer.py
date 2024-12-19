@@ -3,6 +3,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from dash import Dash, dcc, html, Input, Output
+from plotly.colors import qualitative
 
 def parse_metric_file(filepath):
     """
@@ -424,15 +425,15 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
 
         line_nc = selected_line_node_count
         allowed_nodes_line = selected_nodes_by_nc[line_nc]  # nodes selected for this node_count
+
         # Collect data per interface per node
         # line_values[node_name][interface_index][element] = value
         # We'll store per-interface node lines, then sum for combined
         node_line_data_per_interface = []
-        all_nodes_in_line = allowed_nodes_line
 
         for interface_index in range(num_interfaces):
             # For this interface, build a dict of node_name -> array of Ny values
-            interface_node_lines = {node_name: np.zeros(Ny) for node_name in all_nodes_in_line}
+            interface_node_lines = {node_name: np.zeros(Ny) for node_name in allowed_nodes_line}
 
             # x_idx for the chosen node_count column
             x_idx = node_counts.index(line_nc)
@@ -445,35 +446,52 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                 val_map = {}
                 for nid_i, nid in enumerate(node_ids):
                     node_name = reverse_node_map[nid]
-                    if node_name in all_nodes_in_line:
+                    if node_name in allowed_nodes_line:
                         val = metric_array[interface_index, selected_metric_index, x_idx, y, nid_i]
-                        if val != -1:
-                            val_map[node_name] = val
-                        else:
-                            val_map[node_name] = 0
+                        if val == -1:
+                            val = 0
+                        val_map[node_name] = val
 
                 # Assign values to interface_node_lines
-                for node_name in all_nodes_in_line:
+                for node_name in allowed_nodes_line:
                     interface_node_lines[node_name][y] = val_map.get(node_name, 0)
 
             node_line_data_per_interface.append(interface_node_lines)
 
         # Compute combined node lines by summing across interfaces
-        combined_node_lines = {node_name: np.zeros(Ny) for node_name in all_nodes_in_line}
-        for node_name in all_nodes_in_line:
+        combined_node_lines = {node_name: np.zeros(Ny) for node_name in allowed_nodes_line}
+        for node_name in allowed_nodes_line:
             for interface_lines in node_line_data_per_interface:
                 combined_node_lines[node_name] += interface_lines[node_name]
+
+        # Assign colors/styles per node and use legendgroup to show single legend entry
+        color_cycle = qualitative.Dark24
+        node_colors = {}
+        seen_nodes = set()
+
+        def get_node_style(node_name):
+            if node_name not in node_colors:
+                node_colors[node_name] = color_cycle[len(node_colors) % len(color_cycle)]
+            return node_colors[node_name]
 
         # Plot lines for each interface
         for i, interface_lines in enumerate(node_line_data_per_interface):
             r, c = positions[i]
-            for node_name in all_nodes_in_line:
+            for node_name in allowed_nodes_line:
+                node_color = get_node_style(node_name)
+                show_legend_flag = (node_name not in seen_nodes)
+                if show_legend_flag:
+                    seen_nodes.add(node_name)
+
                 line_fig.add_trace(
                     go.Scatter(
                         x=element_counts,
                         y=interface_lines[node_name],
                         mode='lines+markers',
                         name=node_name,
+                        legendgroup=node_name,
+                        showlegend=show_legend_flag,
+                        line=dict(color=node_color),
                         hovertemplate="Elements: %{x}<br>Value: %{y}<extra></extra>"
                     ),
                     row=r, col=c
@@ -481,13 +499,17 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
 
         # Plot combined lines in the center
         combined_r, combined_c = (2, 2)
-        for node_name in all_nodes_in_line:
+        for node_name in allowed_nodes_line:
+            node_color = get_node_style(node_name)
             line_fig.add_trace(
                 go.Scatter(
                     x=element_counts,
                     y=combined_node_lines[node_name],
                     mode='lines+markers',
                     name=node_name,
+                    legendgroup=node_name,
+                    showlegend=False,  # Already shown above
+                    line=dict(color=node_color),
                     hovertemplate="Elements: %{x}<br>Combined: %{y}<extra></extra>"
                 ),
                 row=combined_r, col=combined_c
