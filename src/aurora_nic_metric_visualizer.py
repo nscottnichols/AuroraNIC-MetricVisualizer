@@ -81,14 +81,15 @@ def prepare_metric_array(results, num_interfaces, max_nodes):
     Create a multidimensional array to store the data.
     Shape: {num_interfaces} x {metrics_per_interface} x {len(node_counts)} x {len(element_counts)} x {max_nodes}
     """
+    # Early exit if no results
+    if not results:
+        # Handle empty results case
+        return None, [], []
     # Extract unique node counts and element counts
     node_counts = sorted({key[0] for key in results.keys()})
     element_counts = sorted({key[1] for key in results.keys()})
 
     # Determine number of metrics based on the first entry
-    if not results:
-        # Handle empty results case
-        return None, [], []
     example_key = next(iter(results.keys()))
     num_metrics = len(results[example_key][0])
 
@@ -263,10 +264,6 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         # metric_array: (num_interfaces, metrics_per_interface, node_counts, element_counts, max_nodes)
         # We'll compute the interface_heatmaps with per-(node_count, element_count) filtering
         interface_heatmaps = []
-
-        # We'll also store per-interface data for the selected_line_node_count:
-        line_data_per_interface = []
-
         for interface_index in range(num_interfaces):
             # We'll build a 2D array (Nx, Ny) by summing over the filtered nodes
             hm_data = np.zeros((Nx, Ny))
@@ -298,18 +295,6 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             # If there are nans, replace them with 0
             hm_data = np.nan_to_num(hm_data, nan=0)
             interface_heatmaps.append(hm_data)
-
-            # For line plots: extract data for the selected_line_node_count
-            # Find index x for selected_line_node_count
-            if selected_line_node_count in node_counts:
-                x_idx = node_counts.index(selected_line_node_count)
-                # line_data: values across all element_counts for that x_idx
-                line_values = hm_data[x_idx, :]  # shape: Ny
-            else:
-                # If somehow selected_line_node_count isn't in node_counts, default to zeros
-                line_values = np.zeros(Ny)
-
-            line_data_per_interface.append(line_values)
 
         # Compute combined heatmap (sum of all interfaces)
         combined_heatmap = np.sum(interface_heatmaps, axis=0)
@@ -432,34 +417,81 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             shared_yaxes=False
         )
 
-        # Compute the combined line plot (sum over interfaces)
-        combined_line = np.sum(line_data_per_interface, axis=0)
+        # For the chosen selected_line_node_count, we show one line per node
+        if selected_line_node_count not in node_counts:
+            # No valid node_count selected, just return empty lines
+            return heatmap_fig, line_fig
 
-        # Add lines for each interface
-        for i, line_data in enumerate(line_data_per_interface):
+        line_nc = selected_line_node_count
+        allowed_nodes_line = selected_nodes_by_nc[line_nc]  # nodes selected for this node_count
+        # Collect data per interface per node
+        # line_values[node_name][interface_index][element] = value
+        # We'll store per-interface node lines, then sum for combined
+        node_line_data_per_interface = []
+        all_nodes_in_line = allowed_nodes_line
+
+        for interface_index in range(num_interfaces):
+            # For this interface, build a dict of node_name -> array of Ny values
+            interface_node_lines = {node_name: np.zeros(Ny) for node_name in all_nodes_in_line}
+
+            # x_idx for the chosen node_count column
+            x_idx = node_counts.index(line_nc)
+
+            # For each element_count, filter nodes and collect values
+            for y in range(Ny):
+                ne = element_counts[y]
+                node_ids = results_nodes.get((line_nc, ne), [])
+                # Build a map from node_id to val for this interface, metric, x_idx,y
+                val_map = {}
+                for nid_i, nid in enumerate(node_ids):
+                    node_name = reverse_node_map[nid]
+                    if node_name in all_nodes_in_line:
+                        val = metric_array[interface_index, selected_metric_index, x_idx, y, nid_i]
+                        if val != -1:
+                            val_map[node_name] = val
+                        else:
+                            val_map[node_name] = 0
+
+                # Assign values to interface_node_lines
+                for node_name in all_nodes_in_line:
+                    interface_node_lines[node_name][y] = val_map.get(node_name, 0)
+
+            node_line_data_per_interface.append(interface_node_lines)
+
+        # Compute combined node lines by summing across interfaces
+        combined_node_lines = {node_name: np.zeros(Ny) for node_name in all_nodes_in_line}
+        for node_name in all_nodes_in_line:
+            for interface_lines in node_line_data_per_interface:
+                combined_node_lines[node_name] += interface_lines[node_name]
+
+        # Plot lines for each interface
+        for i, interface_lines in enumerate(node_line_data_per_interface):
             r, c = positions[i]
+            for node_name in all_nodes_in_line:
+                line_fig.add_trace(
+                    go.Scatter(
+                        x=element_counts,
+                        y=interface_lines[node_name],
+                        mode='lines+markers',
+                        name=node_name,
+                        hovertemplate="Elements: %{x}<br>Value: %{y}<extra></extra>"
+                    ),
+                    row=r, col=c
+                )
+
+        # Plot combined lines in the center
+        combined_r, combined_c = (2, 2)
+        for node_name in all_nodes_in_line:
             line_fig.add_trace(
                 go.Scatter(
                     x=element_counts,
-                    y=line_data,
+                    y=combined_node_lines[node_name],
                     mode='lines+markers',
-                    hovertemplate="Elements: %{x}<br>Value: %{y}<extra></extra>",
-                    line=dict(color='blue')
+                    name=node_name,
+                    hovertemplate="Elements: %{x}<br>Combined: %{y}<extra></extra>"
                 ),
-                row=r, col=c
+                row=combined_r, col=combined_c
             )
-
-        # Add combined line in the center
-        line_fig.add_trace(
-            go.Scatter(
-                x=element_counts,
-                y=combined_line,
-                mode='lines+markers',
-                hovertemplate="Elements: %{x}<br>Combined: %{y}<extra></extra>",
-                line=dict(color='red')
-            ),
-            row=2, col=2
-        )
 
         # Update axes for line plots
         for r in range(1,4):
