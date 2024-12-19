@@ -160,12 +160,15 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             ], style={'margin': '20px'})
         )
 
+    # Dropdown for selecting node_count for line plots
+    node_count_line_options = [{'label': str(nc), 'value': nc} for nc in node_counts]
+
     # Create the Dash app
     app = Dash(__name__)
 
     # Layout: Dropdown + Figure
     app.layout = html.Div([
-        html.H1("Interactive Heatmap Analysis for Metric Differences", style={'textAlign': 'center'}),
+        html.H1("Interactive Heatmap Analysis for Metric Differences and Line Plot Slices per Node Count", style={'textAlign': 'center'}),
         html.Div([
             html.Label("Show only non-zero metrics:"),
             dcc.Checklist(
@@ -185,7 +188,29 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
 
         html.Div(node_dropdowns, style={'textAlign': 'center'}),
 
-        dcc.Graph(id='heatmap-figure')
+        html.Div([
+            html.Label("Select Node Count for Line Plots:"),
+            dcc.Dropdown(
+                id='node-count-line-dropdown',
+                options=node_count_line_options,
+                value=node_counts[0] if node_counts else None,
+                clearable=False,
+                style={'width': '300px', 'display': 'inline-block', 'margin-left': '20px'}
+            )
+        ], style={'textAlign': 'center', 'margin': '20px'}),
+
+        # Two figures: one for heatmaps, one for line plots
+        html.Div([
+            html.Div([
+                html.H2("Heatmaps", style={'textAlign': 'center'}),
+                dcc.Graph(id='heatmap-figure')
+            ], style={'display': 'inline-block', 'verticalAlign': 'top'}),
+
+            html.Div([
+                html.H2("Line Plots", style={'textAlign': 'center'}),
+                dcc.Graph(id='line-figure')
+            ], style={'display': 'inline-block', 'verticalAlign': 'top'})
+        ], style={'width': '100%', 'textAlign': 'center'})
     ])
 
     # Callback to update the dropdown options based on the hide-zero-metrics checkbox
@@ -205,11 +230,14 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
     node_inputs = [Input(f'node-dropdown-{nc}', 'value') for nc in node_counts]
 
     @app.callback(
-        Output('heatmap-figure', 'figure'),
-        [Input('metric-dropdown', 'value'), Input('hide-zero-metrics', 'value')] + node_inputs
+        [Output('heatmap-figure', 'figure'),
+         Output('line-figure', 'figure')],
+        [Input('metric-dropdown', 'value'),
+         Input('hide-zero-metrics', 'value'),
+         Input('node-count-line-dropdown', 'value')] + node_inputs
     )
-    def update_figure(selected_metric_index, hide_zero, *node_selections):
-        # node_selections corresponds to each node_count in node_counts
+    def update_figure(selected_metric_index, hide_zero, selected_line_node_count, *node_selections):
+        # Map selected nodes per node_count
         selected_nodes_by_nc = {}
         for i, nc in enumerate(node_counts):
             selected_nodes = node_selections[i]
@@ -230,27 +258,22 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             "Interface 8"
         ]
 
-        # Create a 3x3 subplot figure
-        fig = make_subplots(
-            rows=3, cols=3,
-            subplot_titles=subplot_titles,
-            vertical_spacing=0.02, horizontal_spacing=0.02,
-            shared_xaxes=False,
-            shared_yaxes=False
-        )
-
         # Compute the 8 interface heatmaps for the selected metric
         # Each heatmap is (node_counts, element_counts), averaged over nodes
         # metric_array: (num_interfaces, metrics_per_interface, node_counts, element_counts, max_nodes)
         # We'll compute the interface_heatmaps with per-(node_count, element_count) filtering
         interface_heatmaps = []
+
+        # We'll also store per-interface data for the selected_line_node_count:
+        line_data_per_interface = []
+
         for interface_index in range(num_interfaces):
             # We'll build a 2D array (Nx, Ny) by summing over the filtered nodes
             hm_data = np.zeros((Nx, Ny))
             hm_data[:] = np.nan  # start with nan to use nanmean/sum if needed
 
             # Walk through each (x,y) cell
-            # (x,y) corresponds to node_counts[x], element_counts[y]
+            # (x, y) corresponds to node_counts[x], element_counts[y]
             for x in range(Nx):
                 nc = node_counts[x]
                 allowed_nodes = selected_nodes_by_nc[nc]  # allowed node names for this node_count
@@ -276,8 +299,29 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             hm_data = np.nan_to_num(hm_data, nan=0)
             interface_heatmaps.append(hm_data)
 
+            # For line plots: extract data for the selected_line_node_count
+            # Find index x for selected_line_node_count
+            if selected_line_node_count in node_counts:
+                x_idx = node_counts.index(selected_line_node_count)
+                # line_data: values across all element_counts for that x_idx
+                line_values = hm_data[x_idx, :]  # shape: Ny
+            else:
+                # If somehow selected_line_node_count isn't in node_counts, default to zeros
+                line_values = np.zeros(Ny)
+
+            line_data_per_interface.append(line_values)
+
         # Compute combined heatmap (sum of all interfaces)
         combined_heatmap = np.sum(interface_heatmaps, axis=0)
+
+        # Create a 3x3 subplot figure for heatmaps
+        heatmap_fig = make_subplots(
+            rows=3, cols=3,
+            subplot_titles=subplot_titles,
+            vertical_spacing=0.02, horizontal_spacing=0.02,
+            shared_xaxes=False,
+            shared_yaxes=False
+        )
 
         # Positions of the subplots:
         # We'll place interfaces in the outer 8 subplots (ignoring the center)
@@ -296,7 +340,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         # Add the 8 interface heatmaps
         for i, hm_data in enumerate(interface_heatmaps):
             r, c = positions[i]
-            fig.add_trace(
+            heatmap_fig.add_trace(
                 go.Heatmap(
                     z=hm_data.T,
                     x=x_indices,
@@ -311,7 +355,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             )
 
         # Add the combined heatmap in the center (2, 2)
-        fig.add_trace(
+        heatmap_fig.add_trace(
             go.Heatmap(
                 z=combined_heatmap.T,
                 x=x_indices,
@@ -333,7 +377,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                 show_y_labels = (c == 1)
 
                 # Map tickvals to actual node/element values
-                fig.update_xaxes(
+                heatmap_fig.update_xaxes(
                     title_text="Node Count" if show_x_labels else None,
                     tickmode='array',
                     tickvals=x_indices,
@@ -343,7 +387,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                     row=r, col=c
                 )
                 
-                fig.update_yaxes(
+                heatmap_fig.update_yaxes(
                     title_text="Elements" if show_y_labels else None,
                     tickmode='array',
                     tickvals=y_indices,
@@ -354,7 +398,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                 )
 
         # Make the figure square
-        fig.update_layout(
+        heatmap_fig.update_layout(
             title=f"Selected Metric: {metric_names[selected_metric_index]}",
             width=1000,
             height=1000,
@@ -379,7 +423,71 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             margin=dict(l=50, r=150, t=50, b=50)
         )
 
-        return fig
+        # Build the line plot figure
+        line_fig = make_subplots(
+            rows=3, cols=3,
+            subplot_titles=subplot_titles,
+            vertical_spacing=0.05, horizontal_spacing=0.05,
+            shared_xaxes=False,
+            shared_yaxes=False
+        )
+
+        # Compute the combined line plot (sum over interfaces)
+        combined_line = np.sum(line_data_per_interface, axis=0)
+
+        # Add lines for each interface
+        for i, line_data in enumerate(line_data_per_interface):
+            r, c = positions[i]
+            line_fig.add_trace(
+                go.Scatter(
+                    x=element_counts,
+                    y=line_data,
+                    mode='lines+markers',
+                    hovertemplate="Elements: %{x}<br>Value: %{y}<extra></extra>",
+                    line=dict(color='blue')
+                ),
+                row=r, col=c
+            )
+
+        # Add combined line in the center
+        line_fig.add_trace(
+            go.Scatter(
+                x=element_counts,
+                y=combined_line,
+                mode='lines+markers',
+                hovertemplate="Elements: %{x}<br>Combined: %{y}<extra></extra>",
+                line=dict(color='red')
+            ),
+            row=2, col=2
+        )
+
+        # Update axes for line plots
+        for r in range(1,4):
+            for c in range(1,4):
+                show_x_labels = (r == 3)
+                show_y_labels = (c == 1)
+                line_fig.update_xaxes(
+                    title_text="Elements" if show_x_labels else None,
+                    tickmode='array',
+                    tickvals=element_counts,
+                    ticktext=element_counts if show_x_labels else [],
+                    showticklabels=show_x_labels,
+                    row=r, col=c
+                )
+                line_fig.update_yaxes(
+                    title_text="Value" if show_y_labels else None,
+                    showticklabels=show_y_labels,
+                    row=r, col=c
+                )
+
+        line_fig.update_layout(
+            title=f"Line Plots for Node Count {selected_line_node_count} (Metric: {metric_names[selected_metric_index]})",
+            width=1000,
+            height=1000,
+            margin=dict(l=50, r=50, t=50, b=50)
+        )
+
+        return heatmap_fig, line_fig
 
     # Run the Dash app
     #app.run_server(debug=False, host='0.0.0.0', port=8050)
