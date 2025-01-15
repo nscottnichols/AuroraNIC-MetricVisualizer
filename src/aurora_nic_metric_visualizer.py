@@ -1,4 +1,5 @@
 import os
+import re
 import pickle
 import numpy as np
 import plotly.graph_objects as go
@@ -114,6 +115,146 @@ def prepare_metric_array(results, num_interfaces, max_nodes):
                     metric_array[interface_index, metric_index, x, y, node_id] = value
 
     return metric_array, node_counts, element_counts
+
+def parse_oneccl_file(filepath):
+    """
+    Parse a single oneCCL benchmark file and extract three lines of timing data.
+
+    Returns:
+        A list of up to three dictionaries, each with the keys:
+            't_min', 't_max', 't_avg', 'stddev'.
+        Returns an empty list if parsing fails or if data is incomplete.
+    """
+    data_lines = []
+    with open(filepath, 'r') as f:
+        lines = f.readlines()
+
+    # Find the performance table header
+    header_index = None
+    for i, line in enumerate(lines):
+        if '#bytes' in line and 't_min[usec]' in line:
+            header_index = i + 1
+            break
+    if header_index is None:
+        return data_lines
+
+    # Extract up to three lines of data following the header
+    for i in range(3):
+        idx = header_index + i
+        if idx < len(lines):
+            row = lines[idx].strip()
+            if not row or row.startswith('#'):
+                continue
+            parts = row.split()
+            if len(parts) < 7:
+                continue
+            try:
+                t_min = float(parts[3])
+                t_max = float(parts[4])
+                t_avg = float(parts[5])
+                stddev = float(parts[6])
+                data_lines.append({
+                    't_min': t_min,
+                    't_max': t_max,
+                    't_avg': t_avg,
+                    'stddev': stddev
+                })
+            except ValueError:
+                pass
+
+    return data_lines
+
+
+def process_oneccl_benchmarks(base_dir):
+    """
+    Parse oneCCL benchmark data from multiple job directories.
+
+    For each job directory, searches an "out_{job_dir}" subdirectory for
+    files named in the pattern:
+        oneccl_allreduce_{job_name}_{node_count}_{ranks}_{rpn}_{elem}_sycl_ccl_gpu_out_w1.txt
+
+    The 'node_count' is inferred from the matching filename, and 'elem' indicates
+    the element count. Each file is parsed for timing data via parse_oneccl_file().
+
+    Returns:
+        A dictionary of the form:
+            {
+              node_count: {
+                'element_counts': [...],
+                'data': np.array of shape (num_elements, 3, 4)
+              },
+              ...
+            }
+        where the 3 dimension corresponds to the three lines of timing data,
+        and 4 corresponds to (t_min, t_max, t_avg, stddev).
+    """
+    bench_data = {}
+
+    for job_dir in os.listdir(base_dir):
+        job_path = os.path.join(base_dir, job_dir)
+        out_dir = os.path.join(job_path, f"out_{job_dir}")
+        if not os.path.isdir(out_dir):
+            continue
+
+        # Parse node_count from matching filenames
+        node_count = None
+        file_map = {}
+
+        for fname in os.listdir(out_dir):
+            if not fname.startswith("oneccl_allreduce_") or not fname.endswith("_sycl_ccl_gpu_out_w1.txt"):
+                continue
+
+            # Example filename:
+            #   oneccl_allreduce_10281099.amn-0001_64_768_12_1024_sycl_ccl_gpu_out_w1.txt
+            # Pattern: oneccl_allreduce_{job_name}_{node_count}_{ranks}_{rpn}_{elem}_sycl_ccl_gpu_out_w1.txt
+            pattern = r"oneccl_allreduce_([^_]+)_(\d+)_(\d+)_(\d+)_(\d+)_sycl_ccl_gpu_out_w1\.txt"
+            match = re.match(pattern, fname)
+            if not match:
+                continue
+
+            # job_name = match.group(1)     # e.g. 10281099.amn-0001
+            ncount = int(match.group(2))    # e.g. 64
+            # ranks = int(match.group(3))   # e.g. 768
+            # rpn = int(match.group(4))     # e.g. 12
+            elem_count = int(match.group(5))  # e.g. 1024
+
+            if node_count is None:
+                node_count = ncount
+            if node_count != ncount:
+                # Skip files that have a mismatched node_count
+                continue
+
+            file_map[elem_count] = os.path.join(out_dir, fname)
+
+        if node_count is None:
+            continue
+
+        sorted_elems = sorted(file_map.keys())
+        if not sorted_elems:
+            continue
+
+        # Prepare an array to store 3 lines x 4 stats
+        data_array = np.zeros((len(sorted_elems), 3, 4), dtype=np.float64)
+
+        for i, elem_count in enumerate(sorted_elems):
+            fpath = file_map[elem_count]
+            lines_data = parse_oneccl_file(fpath)
+            if len(lines_data) == 3:
+                for j, d in enumerate(lines_data):
+                    data_array[i, j, 0] = d['t_min']
+                    data_array[i, j, 1] = d['t_max']
+                    data_array[i, j, 2] = d['t_avg']
+                    data_array[i, j, 3] = d['stddev']
+            else:
+                # Fill with NaN if data is incomplete
+                data_array[i, :, :] = np.nan
+
+        bench_data[node_count] = {
+            'element_counts': sorted_elems,
+            'data': data_array
+        }
+
+    return bench_data
 
 # New interactive plotting function with Plotly and Dash
 def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_names, node_map, results_nodes):
@@ -560,7 +701,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
 
     # Run the Dash app
     #app.run_server(debug=False, host='0.0.0.0', port=8050)
-    app.run_server(debug=False, host='0.0.0.0', port=13717)
+    app.run(debug=False, host='0.0.0.0', port=13717)
 
 if __name__ == "__main__":
     base_directory = "/lus/gila/projects/atlas_aesp_CNDA/oneCCL_test/jobs_test"  # Update to your base directory path
@@ -568,6 +709,7 @@ if __name__ == "__main__":
     metric_names_file = "metric_names.txt"  # Update if needed
     cache_file = os.path.join(base_directory, "cached_data.pkl")
 
+    # (1) Load or process metric data
     if os.path.isfile(cache_file):
         # Load cached data
         with open(cache_file, "rb") as f:
@@ -610,7 +752,20 @@ if __name__ == "__main__":
         # Save the processed data to cache
         with open(cache_file, "wb") as f:
             pickle.dump((node_map, job_results, job_results_nodes, metric_array, node_counts, element_counts, metric_names), f)
-        print("Processed data and saved to cache.")
+        print("Processed metric data and saved to cache.")
 
-    # Run the interactive Dash app
+    # (2) Load or process oneCCL benchmarks
+    bench_cache_file = os.path.join(base_directory, "cached_bench.pkl")
+    if os.path.isfile(bench_cache_file):
+        with open(bench_cache_file, "rb") as f:
+            bench_results = pickle.load(f)
+        print("Loaded oneCCL benchmark data from cache.")
+        print(bench_results)
+    else:
+        bench_results = process_oneccl_benchmarks(base_directory)
+        with open(bench_cache_file, "wb") as f:
+            pickle.dump(bench_results, f)
+        print("Processed oneCCL benchmark data and saved to cache.")
+
+    # (3) Run the interactive Dash app
     run_interactive_dash_app(metric_array, node_counts, element_counts, metric_names, node_map, job_results_nodes)
