@@ -256,6 +256,91 @@ def process_oneccl_benchmarks(base_dir):
 
     return bench_data
 
+def prepare_benchmark_array(bench_results):
+    """
+    Reorganize the benchmark data into a consolidated NumPy array.
+
+    Parameters
+    ----------
+    bench_results : dict
+        A dictionary of the form returned by process_oneccl_benchmarks, i.e.:
+        {
+          node_count: {
+            'element_counts': [e1, e2, ...],
+            'data': np.array of shape (num_elems, 3, 4)
+                    where:
+                      - num_elems is len(element_counts)
+                      - the second dimension (3) corresponds to 3 iterations
+                      - the third dimension (4) corresponds to [t_min, t_max, t_avg, stddev]
+          },
+          ...
+        }
+
+    Returns
+    -------
+    bench_array : np.ndarray
+        A 4D array of shape:
+            (num_node_counts, num_element_counts, 3, 4)
+        where:
+          - The first axis is over sorted node_counts
+          - The second axis is over sorted unique element_counts
+          - The third axis is the iteration index (0..2)
+          - The fourth axis is the statistic index:
+                0 -> t_min
+                1 -> t_max
+                2 -> t_avg
+                3 -> stddev
+          Any missing (node_count, element_count) pair will be filled with np.nan.
+
+    node_counts : list of int
+        Sorted list of node counts extracted from bench_results.
+
+    element_counts : list of int
+        Sorted list of all unique element counts combined across all node counts.
+
+    Notes
+    -----
+    - This function merges all node counts and element counts from bench_results
+      into a single consistent 4D array for simpler heatmap or line-plot usage.
+    - For a node_count that does not have a particular element_count, the
+      corresponding array slice is filled with np.nan.
+    """
+    # 1. Gather all node_counts and sort them.
+    all_node_counts = sorted(bench_results.keys())
+
+    # 2. Gather all element_counts from all node_counts and build a global sorted list.
+    all_element_sets = []
+    for nc in all_node_counts:
+        all_element_sets.append(bench_results[nc]['element_counts'])
+    # Flatten and deduplicate
+    unique_elements = sorted(set().union(*all_element_sets))
+
+    # 3. Prepare the 4D array:
+    #    shape = (num_node_counts, num_element_counts, 3, 4)
+    #    Fill with np.nan by default.
+    num_nodes = len(all_node_counts)
+    num_elems = len(unique_elements)
+    bench_array = np.full((num_nodes, num_elems, 3, 4), np.nan, dtype=np.float64)
+
+    # 4. Build a small helper index for quick lookup:
+    #    For each node_count, 'element_counts' is already sorted,
+    #    so create a dict: {elem_count -> row index in the data array}.
+    #    The map allows data to be easily copied into the correct location in bench_array.
+    for i, node_count in enumerate(all_node_counts):
+        elem_list = bench_results[node_count]['element_counts']
+        data_3d = bench_results[node_count]['data']  # shape = (nLocal, 3, 4)
+        # Build a map from elem -> local row index.
+        local_index_map = {elem_val: idx for idx, elem_val in enumerate(elem_list)}
+
+        # Fill bench_array for current node_count
+        for j, global_elem in enumerate(unique_elements):
+            if global_elem in local_index_map:
+                local_idx = local_index_map[global_elem]
+                # data_3d[local_idx] is shape (3,4) for the 3 iterations x 4 stats
+                bench_array[i, j, :, :] = data_3d[local_idx, :, :]
+
+    return bench_array, all_node_counts, unique_elements
+
 # New interactive plotting function with Plotly and Dash
 def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_names, node_map, results_nodes):
 
@@ -749,7 +834,7 @@ if __name__ == "__main__":
 
         metric_names = all_names
 
-        # Save the processed data to cache
+        # Save the processed metric data to cache
         with open(cache_file, "wb") as f:
             pickle.dump((node_map, job_results, job_results_nodes, metric_array, node_counts, element_counts, metric_names), f)
         print("Processed metric data and saved to cache.")
@@ -758,13 +843,16 @@ if __name__ == "__main__":
     bench_cache_file = os.path.join(base_directory, "cached_bench.pkl")
     if os.path.isfile(bench_cache_file):
         with open(bench_cache_file, "rb") as f:
-            bench_results = pickle.load(f)
+            bench_array, bench_node_counts, bench_elements = pickle.load(f)
         print("Loaded oneCCL benchmark data from cache.")
-        print(bench_results)
+        print(bench_array)
     else:
         bench_results = process_oneccl_benchmarks(base_directory)
+        bench_array, bench_node_counts, bench_elements = prepare_benchmark_array(bench_results)
+
+        # Save the processed benchmark data to cache
         with open(bench_cache_file, "wb") as f:
-            pickle.dump(bench_results, f)
+            pickle.dump((bench_array, bench_node_counts, bench_elements), f)
         print("Processed oneCCL benchmark data and saved to cache.")
 
     # (3) Run the interactive Dash app
