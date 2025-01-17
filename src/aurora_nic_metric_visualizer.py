@@ -342,12 +342,14 @@ def prepare_benchmark_array(bench_results):
     return bench_array, all_node_counts, unique_elements
 
 # New interactive plotting function with Plotly and Dash
-def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_names, node_map, results_nodes):
+def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_names,
+                             node_map, results_nodes,
+                             bench_array, bench_node_counts, bench_elements):
 
     # Calculate log2 of element counts
     log2_element_counts = np.log2(element_counts)
 
-    # Dimensions
+    # Dimensions of metric_array
     num_interfaces, metrics_per_interface, Nx, Ny, max_nodes = metric_array.shape
 
     # Reverse the node_map to get node_name from node_id
@@ -360,14 +362,13 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
     data_filled = np.where(mask, np.nan, metric_array)
 
     # Sum absolute values to ensure we catch negative differences if any
-    metric_sums = np.nansum(np.abs(data_filled), axis=(0,2,3,4)) # sum over interfaces, node_counts, element_counts, max_nodes
+    metric_sums = np.nansum(np.abs(data_filled), axis=(0, 2, 3, 4)) # sum over interfaces, node_counts, element_counts, max_nodes
     zero_metrics = (metric_sums == 0)
 
-    # All metric options (including zero ones)
+    # Build metric dropdown options
     all_metric_options = [{'label': metric_names[i], 'value': i} for i in range(metrics_per_interface)]
-
-    # Non-zero metric options
-    nonzero_metric_options = [{'label': metric_names[i], 'value': i} for i in range(metrics_per_interface) if not zero_metrics[i]]
+    nonzero_metric_options = [{'label': metric_names[i], 'value': i} 
+                              for i in range(metrics_per_interface) if not zero_metrics[i]]
 
     # Build a dictionary of nodes_for_node_count
     # nodes_for_node_count[node_count] = set of node names that appear in that node_count column (across all elements)
@@ -396,12 +397,47 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
     # Dropdown for selecting node_count for line plots
     node_count_line_options = [{'label': str(nc), 'value': nc} for nc in node_counts]
 
+    # ------------------- OneCCL Benchmarks Controls -------------------
+    # 1) Dropdown to select iteration index (0..2)
+    bench_iteration_dropdown = html.Div([
+        html.Label("Select Benchmark Iteration:"),
+        dcc.Dropdown(
+            id='bench-iteration-dropdown',
+            options=[{'label': f"Iteration {i}", 'value': i} for i in [0, 1, 2]],
+            value=0,  # default iteration
+            clearable=False,
+            style={'width': '200px', 'display': 'inline-block', 'margin-left': '20px'}
+        )
+    ], style={'textAlign': 'center', 'margin': '20px'})
+
+    # 2) Dropdown to select stat index ([t_min, t_max, t_avg, stddev] -> [0,1,2,3])
+    bench_stat_dropdown = html.Div([
+        html.Label("Select Benchmark Stat:"),
+        dcc.Dropdown(
+            id='bench-stat-dropdown',
+            options=[
+                {'label': 't_min',   'value': 0},
+                {'label': 't_max',   'value': 1},
+                {'label': 't_avg',   'value': 2},
+                {'label': 'stddev',  'value': 3},
+            ],
+            value=2,  # default to t_avg
+            clearable=False,
+            style={'width': '200px', 'display': 'inline-block', 'margin-left': '20px'}
+        )
+    ], style={'textAlign': 'center', 'margin': '20px'})
+    # -----------------------------------------------------------------------
+
     # Create the Dash app
     app = Dash(__name__)
 
-    # Layout: Dropdown + Figure
+    # Layout: metric controls + metric figures + benchmark controls + benchmark figures
     app.layout = html.Div([
-        html.H1("Interactive Heatmap Analysis for Metric Differences and Line Plot Slices per Node Count", style={'textAlign': 'center'}),
+
+        html.H1("Interactive Heatmap Analysis for Metric Differences and Line Plot Slices per Node Count",
+                style={'textAlign': 'center'}),
+
+        # Metric controls (show/hide zero metrics, metric selection, etc.)
         html.Div([
             html.Label("Show only non-zero metrics:"),
             dcc.Checklist(
@@ -432,53 +468,96 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             )
         ], style={'textAlign': 'center', 'margin': '20px'}),
 
-        # Two figures: one for heatmaps, one for line plots
+        # Metric Plots (2 figures: heatmap + line)
         html.Div([
             html.Div([
-                html.H2("Heatmaps", style={'textAlign': 'center'}),
+                html.H2("Heatmaps (Metric Data)", style={'textAlign': 'center'}),
                 dcc.Graph(id='heatmap-figure')
             ], style={'display': 'inline-block', 'verticalAlign': 'top'}),
 
             html.Div([
-                html.H2("Line Plots", style={'textAlign': 'center'}),
+                html.H2("Line Plots (Metric Data)", style={'textAlign': 'center'}),
                 dcc.Graph(id='line-figure')
             ], style={'display': 'inline-block', 'verticalAlign': 'top'})
-        ], style={'width': '100%', 'textAlign': 'center'})
+        ], style={'width': '100%', 'textAlign': 'center', 'marginBottom': '50px'}),
+
+        # OneCCL Benchmark Section
+        html.Hr(),
+        html.H2("oneCCL Benchmark Data", style={'textAlign': 'center'}),
+        html.Div([
+            bench_iteration_dropdown,
+            bench_stat_dropdown
+        ], style={'textAlign': 'center'}),
+
+        html.Div([
+            html.Div([
+                html.H2("Benchmark Heatmap", style={'textAlign': 'center'}),
+                dcc.Graph(id='bench-heatmap-figure')
+            ], style={'display': 'inline-block', 'verticalAlign': 'top'}),
+
+            html.Div([
+                html.H2("Benchmark Line Plots", style={'textAlign': 'center'}),
+                dcc.Graph(id='bench-line-figure')
+            ], style={'display': 'inline-block', 'verticalAlign': 'top'})
+        ], style={'width': '100%', 'textAlign': 'center'}),
+
     ])
 
-    # Callback to update the dropdown options based on the hide-zero-metrics checkbox
+    # Callback to update the metric controls
     @app.callback(
         Output('metric-dropdown', 'options'),
         Input('hide-zero-metrics', 'value')
     )
     def update_dropdown_options(hide_zero):
         if 'hide' in hide_zero:
-            # Return only non-zero metrics
             return nonzero_metric_options
         else:
-            # Return all metrics
             return all_metric_options
 
     # Build a list of Inputs for each node-dropdown
     node_inputs = [Input(f'node-dropdown-{nc}', 'value') for nc in node_counts]
 
+    # ------------------- UPDATE FIGURES CALLBACK -------------------
     @app.callback(
-        [Output('heatmap-figure', 'figure'),
-         Output('line-figure', 'figure')],
-        [Input('metric-dropdown', 'value'),
-         Input('hide-zero-metrics', 'value'),
-         Input('node-count-line-dropdown', 'value')] + node_inputs
+        # Return *four* figures: two metric figures + two benchmark figures
+        [
+            Output('heatmap-figure', 'figure'),
+            Output('line-figure', 'figure'),
+            Output('bench-heatmap-figure', 'figure'),
+            Output('bench-line-figure', 'figure')
+        ],
+        [
+            Input('metric-dropdown', 'value'),
+            Input('hide-zero-metrics', 'value'),
+            Input('node-count-line-dropdown', 'value'),
+            *node_inputs,                   # one input per node-dropdown
+            Input('bench-iteration-dropdown', 'value'),
+            Input('bench-stat-dropdown', 'value')
+        ]
     )
-    def update_figure(selected_metric_index, hide_zero, selected_line_node_count, *node_selections):
+    def update_figure(selected_metric_index,
+                      hide_zero,
+                      selected_line_node_count,
+                      *args):
+        """
+        args = node_selections + (bench_iteration, bench_stat)
+        where node_selections is a tuple of length len(node_counts).
+        """
+        # Separate the node-dropdown selections from the new bench iteration/stat
+        node_selections = args[:len(node_counts)]
+        bench_iteration = args[len(node_counts)]
+        bench_stat      = args[len(node_counts)+1]
+
+        # ------------------- (1) Metric Plots -------------------
         # Map selected nodes per node_count
         selected_nodes_by_nc = {}
         for i, nc in enumerate(node_counts):
             selected_nodes = node_selections[i]
-            # If None or empty, use all nodes for that node_count
-            if not selected_nodes:
+            if not selected_nodes:  # If None or empty, use all nodes
                 selected_nodes = nodes_for_node_count[nc]
             selected_nodes_by_nc[nc] = set(selected_nodes)
 
+        # Subplot titles for the metric plots
         subplot_titles = [
             "Interface 1",
             "Interface 2",
@@ -494,12 +573,12 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         # Compute the 8 interface heatmaps for the selected metric
         # Each heatmap is (node_counts, element_counts), averaged over nodes
         # metric_array: (num_interfaces, metrics_per_interface, node_counts, element_counts, max_nodes)
-        # We'll compute the interface_heatmaps with per-(node_count, element_count) filtering
+        # The interface_heatmaps are computed with per-(node_count, element_count) filtering
         interface_heatmaps = []
         for interface_index in range(num_interfaces):
-            # We'll build a 2D array (Nx, Ny) by summing over the filtered nodes
+            # Build a 2D array (Nx, Ny) by summing over the filtered nodes
             hm_data = np.zeros((Nx, Ny))
-            hm_data[:] = np.nan  # start with nan to use nanmean/sum if needed
+            hm_data[:] = np.nan  # start with nan to use nanmean/sum
 
             # Walk through each (x,y) cell
             # (x, y) corresponds to node_counts[x], element_counts[y]
@@ -522,7 +601,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                     if filtered_values:
                         hm_data[x, y] = np.nansum(filtered_values)
                     else:
-                        hm_data[x, y] = 0  # or np.nan if you prefer
+                        hm_data[x, y] = 0
 
             # If there are nans, replace them with 0
             hm_data = np.nan_to_num(hm_data, nan=0)
@@ -531,26 +610,25 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         # Compute combined heatmap (sum of all interfaces)
         combined_heatmap = np.sum(interface_heatmaps, axis=0)
 
-        # Create a 3x3 subplot figure for heatmaps
+        # Create a 3x3 subplot figure for the metric heatmaps
         heatmap_fig = make_subplots(
             rows=3, cols=3,
             subplot_titles=subplot_titles,
             vertical_spacing=0.02, horizontal_spacing=0.02,
-            shared_xaxes=False,
-            shared_yaxes=False
+            shared_xaxes=False, shared_yaxes=False
         )
 
         # Positions of the subplots:
-        # We'll place interfaces in the outer 8 subplots (ignoring the center)
-        # and the combined in the center (2, 2) in 1-based indexing.
+        # Interfaces are placed in the outer 8 subplots (ignoring the center)
+        # and the combined is placed in the center (2, 2) in 1-based indexing.
         # The layout (0-based indexing for code reference):
         # (1, 1) is the center subplot in 0-based, but plotly is 1-based indexing so center is (2, 2).
-        # Let's define the subplot order (row, col) for the 8 interfaces:
+        # Below is the subplot order (row, col) for the 8 interfaces:
         positions = [(1,1), (1,2), (1,3),
                      (2,1),        (2,3),
                      (3,1), (3,2), (3,3)]
 
-        # We'll use indices for plotting, then map ticks to correct ranges
+        # Use indices for plotting, then map ticks to correct ranges
         x_indices = list(range(Nx))
         y_indices = list(range(Ny))
 
@@ -603,7 +681,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                     showticklabels=show_x_labels,
                     row=r, col=c
                 )
-                
+
                 heatmap_fig.update_yaxes(
                     title_text="Elements" if show_y_labels else None,
                     tickmode='array',
@@ -640,26 +718,25 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             margin=dict(l=50, r=150, t=50, b=50)
         )
 
-        # Build the line plot figure
+        # ---- Build the line plots for the metric data ----
         line_fig = make_subplots(
             rows=3, cols=3,
             subplot_titles=subplot_titles,
             vertical_spacing=0.05, horizontal_spacing=0.05,
-            shared_xaxes=False,
-            shared_yaxes=False
+            shared_xaxes=False, shared_yaxes=False
         )
 
-        # For the chosen selected_line_node_count, we show one line per node
+        # For the chosen selected_line_node_count, show one line per node
         if selected_line_node_count not in node_counts:
-            # No valid node_count selected, just return empty lines
-            return heatmap_fig, line_fig
+            # If invalid node_count, return empty lines for the metric line plot
+            return heatmap_fig, line_fig, go.Figure(), go.Figure()
 
         line_nc = selected_line_node_count
         allowed_nodes_line = selected_nodes_by_nc[line_nc]  # nodes selected for this node_count
 
         # Collect data per interface per node
         # line_values[node_name][interface_index][element] = value
-        # We'll store per-interface node lines, then sum for combined
+        # store per-interface node lines, then sum for combined
         node_line_data_per_interface = []
 
         for interface_index in range(num_interfaces):
@@ -727,8 +804,11 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                         showlegend=show_legend_flag,
                         line=dict(color=node_color),
                         customdata=element_counts,
-                        hovertemplate = "Node: " + node_name + "<br>Elements: %{customdata}<br>Value: %{y}<extra></extra>"
-
+                        hovertemplate=(
+                            "Node: " + node_name +
+                            "<br>Elements: %{customdata}" +
+                            "<br>Value: %{y}<extra></extra>"
+                        )
                     ),
                     row=r, col=c
                 )
@@ -751,7 +831,11 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                     showlegend=False,  # Already shown above
                     line=dict(color=node_color),
                     customdata=element_counts,
-                    hovertemplate = "Node: " + node_name + "<br>Elements: %{customdata}<br>Value: %{y}<extra></extra>"
+                    hovertemplate=(
+                        "Node: " + node_name +
+                        "<br>Elements: %{customdata}" +
+                        "<br>Value: %{y}<extra></extra>"
+                    )
                 ),
                 row=combined_r, col=combined_c
             )
@@ -782,7 +866,82 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             margin=dict(l=50, r=50, t=50, b=50)
         )
 
-        return heatmap_fig, line_fig
+        # ------------------- (2) OneCCL Benchmark Plots -------------------
+
+        # (a) Benchmark Heatmap
+        #   x-axis -> bench_node_counts
+        #   y-axis -> bench_elements
+        #   z      -> bench_array[x, y, bench_iteration, bench_stat]
+        #            shape = (num_node_counts, num_element_counts)
+
+        bench_heatmap_fig = go.Figure()
+        # Note: bench_array has shape (len(bench_node_counts), len(bench_elements), 3, 4)
+        # A 2D slice is picke out bench_array[:, :, bench_iteration, bench_stat]
+        # with shape (num_node_counts, num_element_counts).
+        z_data = bench_array[:, :, bench_iteration, bench_stat]  # shape (node_counts, elements)
+
+        bench_heatmap_fig.add_trace(
+            go.Heatmap(
+                z=z_data.T,
+                x=bench_node_counts,
+                y=bench_elements,
+                colorscale='Viridis',
+                hovertemplate=(
+                    "Node Count: %{x}<br>" +
+                    "Elements: %{y}<br>" +
+                    "Value: %{z}<extra></extra>"
+                ),
+                coloraxis="coloraxis"
+            )
+        )
+
+        bench_heatmap_fig.update_layout(
+            title=f"OneCCL Bench Heatmap (Iteration={bench_iteration}, Stat={['t_min','t_max','t_avg','stddev'][bench_stat]})",
+            xaxis_title="Node Count",
+            yaxis_title="Element Count",
+            width=600,
+            height=600,
+            margin=dict(l=50, r=50, t=80, b=50),
+            coloraxis=dict(
+                colorscale='Viridis',
+                colorbar=dict(
+                    title='Value'
+                )
+            )
+        )
+
+        # (b) Benchmark Line Plot
+        #   x-axis -> bench_elements
+        #   Each line -> one node_count
+        #   y-values -> bench_array[node_count_index, :, bench_iteration, bench_stat]
+        bench_line_fig = go.Figure()
+        for i, nc in enumerate(bench_node_counts):
+            yvals = bench_array[i, :, bench_iteration, bench_stat]
+            bench_line_fig.add_trace(
+                go.Scatter(
+                    x=bench_elements,
+                    y=yvals,
+                    mode='lines+markers',
+                    name=f"Node Count {nc}",
+                    hovertemplate=(
+                        "Node Count: " + str(nc) +
+                        "<br>Elements: %{x}" +
+                        "<br>Value: %{y}<extra></extra>"
+                    )
+                )
+            )
+
+        bench_line_fig.update_layout(
+            title=f"OneCCL Benchmark Lines (Iteration={bench_iteration}, Stat={['t_min','t_max','t_avg','stddev'][bench_stat]})",
+            xaxis_title="Element Count",
+            yaxis_title="Value",
+            width=600,
+            height=600,
+            margin=dict(l=50, r=50, t=80, b=50)
+        )
+
+        # Return figures
+        return heatmap_fig, line_fig, bench_heatmap_fig, bench_line_fig
 
     # Run the Dash app
     #app.run_server(debug=False, host='0.0.0.0', port=8050)
@@ -845,7 +1004,6 @@ if __name__ == "__main__":
         with open(bench_cache_file, "rb") as f:
             bench_array, bench_node_counts, bench_elements = pickle.load(f)
         print("Loaded oneCCL benchmark data from cache.")
-        print(bench_array)
     else:
         bench_results = process_oneccl_benchmarks(base_directory)
         bench_array, bench_node_counts, bench_elements = prepare_benchmark_array(bench_results)
@@ -856,4 +1014,8 @@ if __name__ == "__main__":
         print("Processed oneCCL benchmark data and saved to cache.")
 
     # (3) Run the interactive Dash app
-    run_interactive_dash_app(metric_array, node_counts, element_counts, metric_names, node_map, job_results_nodes)
+    run_interactive_dash_app(
+        metric_array, node_counts, element_counts,
+        metric_names, node_map, job_results_nodes,
+        bench_array, bench_node_counts, bench_elements
+    )
