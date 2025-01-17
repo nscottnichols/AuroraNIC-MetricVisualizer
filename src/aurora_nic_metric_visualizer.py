@@ -530,7 +530,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             Input('metric-dropdown', 'value'),
             Input('hide-zero-metrics', 'value'),
             Input('node-count-line-dropdown', 'value'),
-            *node_inputs,                   # one input per node-dropdown
+            *node_inputs,  # one input per node-dropdown (one per node_count)
             Input('bench-iteration-dropdown', 'value'),
             Input('bench-stat-dropdown', 'value')
         ]
@@ -868,12 +868,20 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
 
         # ------------------- (2) OneCCL Benchmark Plots -------------------
 
+        # Prepare log2 versions of the benchmark axes
+        log2_bench_node_counts = np.log2(bench_node_counts)
+        log2_bench_elements    = np.log2(bench_elements)
+
         # (a) Benchmark Heatmap
         #   x-axis -> bench_node_counts
         #   y-axis -> bench_elements
         #   z      -> bench_array[x, y, bench_iteration, bench_stat]
         #            shape = (num_node_counts, num_element_counts)
 
+        # Build a 2D array of (nc, ne) pairs for customdata
+        # shape => (len(bench_elements), len(bench_node_counts), 2)
+        xx, yy = np.meshgrid(bench_node_counts, bench_elements)
+        custom_data_2d = np.dstack((xx, yy))  # final shape (num_elements, num_node_counts, 2)
         bench_heatmap_fig = go.Figure()
         # Note: bench_array has shape (len(bench_node_counts), len(bench_elements), 3, 4)
         # A 2D slice is picke out bench_array[:, :, bench_iteration, bench_stat]
@@ -883,25 +891,36 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         bench_heatmap_fig.add_trace(
             go.Heatmap(
                 z=z_data.T,
-                x=bench_node_counts,
-                y=bench_elements,
+                x=log2_bench_node_counts,
+                y=log2_bench_elements,
                 colorscale='Viridis',
+                coloraxis="coloraxis",
+                customdata=custom_data_2d,
                 hovertemplate=(
-                    "Node Count: %{x}<br>" +
-                    "Elements: %{y}<br>" +
+                    "Node Count: %{customdata[0]}<br>" +
+                    "Elements: %{customdata[1]}<br>" +
                     "Value: %{z}<extra></extra>"
-                ),
-                coloraxis="coloraxis"
+                )
             )
         )
 
         bench_heatmap_fig.update_layout(
             title=f"OneCCL Bench Heatmap (Iteration={bench_iteration}, Stat={['t_min','t_max','t_avg','stddev'][bench_stat]})",
-            xaxis_title="Node Count",
-            yaxis_title="Element Count",
             width=600,
             height=600,
             margin=dict(l=50, r=50, t=80, b=50),
+            xaxis=dict(
+                title="Nodes",
+                tickmode='array',
+                tickvals=log2_bench_node_counts,
+                ticktext=[str(nc) for nc in bench_node_counts]
+            ),
+            yaxis=dict(
+                title="Elements",
+                tickmode='array',
+                tickvals=log2_bench_elements,
+                ticktext=[str(ne) for ne in bench_elements]
+            ),
             coloraxis=dict(
                 colorscale='Viridis',
                 colorbar=dict(
@@ -919,13 +938,14 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             yvals = bench_array[i, :, bench_iteration, bench_stat]
             bench_line_fig.add_trace(
                 go.Scatter(
-                    x=bench_elements,
+                    x=log2_bench_elements,
                     y=yvals,
                     mode='lines+markers',
                     name=f"Node Count {nc}",
+                    customdata=bench_elements,
                     hovertemplate=(
                         "Node Count: " + str(nc) +
-                        "<br>Elements: %{x}" +
+                        "<br>Elements: %{customdata}" +
                         "<br>Value: %{y}<extra></extra>"
                     )
                 )
@@ -933,11 +953,18 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
 
         bench_line_fig.update_layout(
             title=f"OneCCL Benchmark Lines (Iteration={bench_iteration}, Stat={['t_min','t_max','t_avg','stddev'][bench_stat]})",
-            xaxis_title="Element Count",
-            yaxis_title="Value",
             width=600,
             height=600,
-            margin=dict(l=50, r=50, t=80, b=50)
+            margin=dict(l=50, r=50, t=80, b=50),
+            xaxis=dict(
+                title="Elements",
+                tickmode='array',
+                tickvals=log2_bench_elements,
+                ticktext=[str(ne) for ne in bench_elements]
+            ),
+            yaxis=dict(
+                title="Value"
+            )
         )
 
         # Return figures
