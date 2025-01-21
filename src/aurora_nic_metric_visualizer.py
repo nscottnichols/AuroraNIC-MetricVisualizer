@@ -629,6 +629,10 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         # Compute combined heatmap (sum of all interfaces)
         combined_heatmap = np.sum(interface_heatmaps, axis=0)
 
+        # Prepare customdata arrays for hover information
+        nc_mesh, ne_mesh = np.meshgrid(node_counts, element_counts)
+        metric_customdata = np.dstack((nc_mesh, ne_mesh))  # shape (Nx, Ny, 2)
+
         # Create a 3x3 subplot figure for the metric heatmaps
         heatmap_fig = make_subplots(
             rows=3, cols=3,
@@ -660,7 +664,12 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                     x=x_indices,
                     y=y_indices,
                     colorscale='Viridis',
-                    hovertemplate="Node Count: %{x}<br>Elements: %{y}<br>Value: %{z}<extra></extra>",
+                    customdata=metric_customdata,
+                    hovertemplate=(
+                        "Node Count: %{customdata[0]}<br>" +
+                        "Elements: %{customdata[1]}<br>" +
+                        "Value: %{z}<extra></extra>"
+                    ),
                     xgap=1,  # spacing between cells
                     ygap=1,
                     coloraxis="coloraxis"  # Shared coloraxis for all outer plots
@@ -675,7 +684,12 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                 x=x_indices,
                 y=y_indices,
                 colorscale='Plasma',
-                hovertemplate="Node Count: %{x}<br>Elements: %{y}<br>Combined: %{z}<extra></extra>",
+                customdata=metric_customdata,
+                hovertemplate=(
+                    "Node Count: %{customdata[0]}<br>" +
+                    "Elements: %{customdata[1]}<br>" +
+                    "Value: %{z}<extra></extra>"
+                ),
                 xgap=1,
                 ygap=1,
                 coloraxis="coloraxis2"  # Separate coloraxis for combined
