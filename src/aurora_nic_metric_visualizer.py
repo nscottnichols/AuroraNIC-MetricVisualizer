@@ -421,11 +421,27 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                 {'label': 't_avg',   'value': 2},
                 {'label': 'stddev',  'value': 3},
             ],
-            value=2,  # default to t_avg
+            value=2,  # default t_avg
             clearable=False,
             style={'width': '200px', 'display': 'inline-block', 'margin-left': '20px'}
         )
     ], style={'textAlign': 'center', 'margin': '20px'})
+
+    # 3) Dropdown to select which dimension appears on the x-axis of line plot
+    bench_line_axis_dropdown = html.Div([
+        html.Label("Select Line X-Axis:"),
+        dcc.Dropdown(
+            id='bench-line-axis-dropdown',
+            options=[
+                {'label': 'Elements', 'value': 'elements'},
+                {'label': 'Nodes',   'value': 'nodes'},
+            ],
+            value='elements',  # default
+            clearable=False,
+            style={'width': '200px', 'display': 'inline-block', 'margin-left': '20px'}
+        )
+    ], style={'textAlign': 'center', 'margin': '20px'})
+
     # -----------------------------------------------------------------------
 
     # Create the Dash app
@@ -486,7 +502,8 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         html.H2("oneCCL Benchmark Data", style={'textAlign': 'center'}),
         html.Div([
             bench_iteration_dropdown,
-            bench_stat_dropdown
+            bench_stat_dropdown,
+            bench_line_axis_dropdown
         ], style={'textAlign': 'center'}),
 
         html.Div([
@@ -532,7 +549,8 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             Input('node-count-line-dropdown', 'value'),
             *node_inputs,  # one input per node-dropdown (one per node_count)
             Input('bench-iteration-dropdown', 'value'),
-            Input('bench-stat-dropdown', 'value')
+            Input('bench-stat-dropdown', 'value'),
+            Input('bench-line-axis-dropdown', 'value')
         ]
     )
     def update_figure(selected_metric_index,
@@ -543,10 +561,11 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         args = node_selections + (bench_iteration, bench_stat)
         where node_selections is a tuple of length len(node_counts).
         """
-        # Separate the node-dropdown selections from the new bench iteration/stat
+        # Separate the node-dropdown selections from the new bench iteration/stat/axis
         node_selections = args[:len(node_counts)]
         bench_iteration = args[len(node_counts)]
-        bench_stat      = args[len(node_counts)+1]
+        bench_stat      = args[len(node_counts) + 1]
+        bench_line_axis = args[len(node_counts) + 2]
 
         # ------------------- (1) Metric Plots -------------------
         # Map selected nodes per node_count
@@ -883,11 +902,11 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         xx, yy = np.meshgrid(bench_node_counts, bench_elements)
         custom_data_2d = np.dstack((xx, yy))  # final shape (num_elements, num_node_counts, 2)
         bench_heatmap_fig = go.Figure()
+
         # Note: bench_array has shape (len(bench_node_counts), len(bench_elements), 3, 4)
         # A 2D slice is picke out bench_array[:, :, bench_iteration, bench_stat]
         # with shape (num_node_counts, num_element_counts).
-        z_data = bench_array[:, :, bench_iteration, bench_stat]  # shape (node_counts, elements)
-
+        z_data = bench_array[:, :, bench_iteration, bench_stat]  # shape (num_node_counts, num_element_counts)
         bench_heatmap_fig.add_trace(
             go.Heatmap(
                 z=z_data.T,
@@ -934,20 +953,58 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         #   Each line -> one node_count
         #   y-values -> bench_array[node_count_index, :, bench_iteration, bench_stat]
         bench_line_fig = go.Figure()
-        for i, nc in enumerate(bench_node_counts):
-            yvals = bench_array[i, :, bench_iteration, bench_stat]
-            bench_line_fig.add_trace(
-                go.Scatter(
-                    x=log2_bench_elements,
-                    y=yvals,
-                    mode='lines+markers',
-                    name=f"Node Count {nc}",
-                    customdata=bench_elements,
-                    hovertemplate=(
-                        "Node Count: " + str(nc) +
-                        "<br>Elements: %{customdata}" +
-                        "<br>Value: %{y}<extra></extra>"
+
+        if bench_line_axis == 'elements':
+            #   x-axis = bench_elements (log2), one line per node_count
+            for i, nc in enumerate(bench_node_counts):
+                yvals = bench_array[i, :, bench_iteration, bench_stat]
+                bench_line_fig.add_trace(
+                    go.Scatter(
+                        x=log2_bench_elements,
+                        y=yvals,
+                        mode='lines+markers',
+                        name=f"Node Count {nc}",
+                        customdata=bench_elements,
+                        hovertemplate=(
+                            "Node Count: " + str(nc) +
+                            "<br>Elements: %{customdata}" +
+                            "<br>Value: %{y}<extra></extra>"
+                        )
                     )
+                )
+            bench_line_fig.update_layout(
+                xaxis=dict(
+                    title="Elements",
+                    tickmode='array',
+                    tickvals=log2_bench_elements,
+                    ticktext=[str(ne) for ne in bench_elements]
+                )
+            )
+
+        else:
+            #   x-axis = bench_node_counts (log2), one line per element_count
+            for j, ne in enumerate(bench_elements):
+                yvals = bench_array[:, j, bench_iteration, bench_stat]  # shape=(len(bench_node_counts),)
+                bench_line_fig.add_trace(
+                    go.Scatter(
+                        x=log2_bench_node_counts,
+                        y=yvals,
+                        mode='lines+markers',
+                        name=f"Elements {ne}",
+                        customdata=bench_node_counts,
+                        hovertemplate=(
+                            "Elements: " + str(ne) +
+                            "<br>Node Count: %{customdata}" +
+                            "<br>Value: %{y}<extra></extra>"
+                        )
+                    )
+                )
+            bench_line_fig.update_layout(
+                xaxis=dict(
+                    title="Nodes",
+                    tickmode='array',
+                    tickvals=log2_bench_node_counts,
+                    ticktext=[str(nc) for nc in bench_node_counts]
                 )
             )
 
@@ -956,15 +1013,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             width=600,
             height=600,
             margin=dict(l=50, r=50, t=80, b=50),
-            xaxis=dict(
-                title="Elements",
-                tickmode='array',
-                tickvals=log2_bench_elements,
-                ticktext=[str(ne) for ne in bench_elements]
-            ),
-            yaxis=dict(
-                title="Value"
-            )
+            yaxis=dict(title="Value")
         )
 
         # Return figures
