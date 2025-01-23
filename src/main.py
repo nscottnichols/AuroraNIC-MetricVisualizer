@@ -1,11 +1,5 @@
 import os
-import re
 import pickle
-import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from dash import Dash, dcc, html, Input, Output
-from plotly.colors import qualitative
 
 from metrics_processing import (
     process_all_jobs,
@@ -19,7 +13,7 @@ from oneccl_processing import (
 
 from app import run_interactive_dash_app
 
-if __name__ == "__main__":
+def main():
     base_directory = "/lus/gila/projects/atlas_aesp_CNDA/oneCCL_test/jobs_test"  # Update to your base directory path
     num_interfaces = 8  # Number of interfaces
     metric_names_file = "metric_names.txt"  # Update if needed
@@ -91,3 +85,6 @@ if __name__ == "__main__":
         metric_names, node_map, job_results_nodes,
         bench_array, bench_node_counts, bench_elements
     )
+
+if __name__ == "__main__":
+    main()
