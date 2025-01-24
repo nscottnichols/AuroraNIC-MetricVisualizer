@@ -12,9 +12,9 @@ from oneccl_processing import (
     prepare_benchmark_array
 )
 
-# from osu_processing import (
-#     process_osu_benchmarks
-# )
+from osu_processing import (
+    process_osu_benchmarks
+)
 
 from app import run_interactive_dash_app
 
@@ -103,10 +103,8 @@ def main():
             bench_results = process_oneccl_benchmarks(base_directory)
             bench_array, bench_node_counts, bench_elements = prepare_benchmark_array(bench_results)
         else:
-            # bench_results = process_osu_benchmarks(base_directory)
-            # bench_array, bench_node_counts, bench_elements = prepare_benchmark_array(bench_results)
-            print("OSU processing is not implemented. Exiting.")
-            exit(1)
+            bench_results = process_osu_benchmarks(base_directory)
+            bench_array, bench_node_counts, bench_elements = prepare_benchmark_array(bench_results)
 
         # Save the processed benchmark data to cache
         with open(bench_cache_file, "wb") as f:
