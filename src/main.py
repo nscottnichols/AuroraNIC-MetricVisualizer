@@ -1,5 +1,6 @@
 import os
 import pickle
+import argparse
 
 from metrics_processing import (
     process_all_jobs,
@@ -11,15 +12,40 @@ from oneccl_processing import (
     prepare_benchmark_array
 )
 
+# from osu_processing import (
+#     process_osu_benchmarks
+# )
+
 from app import run_interactive_dash_app
 
+
+def parse_args():
+    """
+    Parse command-line arguments.
+    """
+    parser = argparse.ArgumentParser(description="Process metrics and benchmarks for interactive Dash app.")
+    parser.add_argument("--base_dir", type=str, default="/lus/gila/projects/atlas_aesp_CNDA/oneCCL_test/jobs_test",
+                        help="Base directory path containing all job/benchmark data.")
+    parser.add_argument("--num_interfaces", type=int, default=8,
+                        help="Number of NIC interfaces.")
+    parser.add_argument("--metric_names_file", type=str, default="metric_names.txt",
+                        help="File containing metric names (one metric name per line).")
+    parser.add_argument("--benchmark", type=str, choices=["oneccl", "osu"], default="oneccl",
+                        help="Select which benchmark to process: 'oneccl' or 'osu'.")
+    return parser.parse_args()
+
+
 def main():
-    base_directory = "/lus/gila/projects/atlas_aesp_CNDA/oneCCL_test/jobs_test"  # Update to your base directory path
-    num_interfaces = 8  # Number of interfaces
-    metric_names_file = "metric_names.txt"  # Update if needed
-    cache_file = os.path.join(base_directory, "cached_data.pkl")
+    # (0) Parse command line arguments
+    args = parse_args()
+
+    base_directory = args.base_dir
+    num_interfaces = args.num_interfaces
+    metric_names_file = args.metric_names_file
+    benchmark_type = args.benchmark  # "oneccl" or "osu"
 
     # (1) Load or process metric data
+    cache_file = os.path.join(base_directory, "cached_data.pkl")
     if os.path.isfile(cache_file):
         # Load cached data
         with open(cache_file, "rb") as f:
@@ -38,11 +64,11 @@ def main():
 
         # Early exit if no data found
         if metric_array is None:
-            print("No data found.")
+            print("No metric data found.")
             exit(0)
 
         # Determine how many metrics per interface
-        # metric_array shape: (num_interfaces, metrics_per_interface, ...)
+        # metric_array shape: (num_interfaces, metrics_per_interface, num_nodes, ...)
         _, metrics_per_interface, _, _, _ = metric_array.shape
 
         # Read metric names from file
@@ -53,7 +79,7 @@ def main():
             # Fallback if file not found
             all_names = []
 
-        # If the file doesn't have enough names, fill with generic names
+        # If the file doesn't have enough names, fill with generic placeholders
         if len(all_names) < metrics_per_interface:
             all_names += [f"Metric_{i+1}" for i in range(len(all_names), metrics_per_interface)]
 
@@ -64,20 +90,28 @@ def main():
             pickle.dump((node_map, job_results, job_results_nodes, metric_array, node_counts, element_counts, metric_names), f)
         print("Processed metric data and saved to cache.")
 
-    # (2) Load or process oneCCL benchmarks
-    bench_cache_file = os.path.join(base_directory, "cached_bench.pkl")
+    # (2) Load or process benchmark data depending on --benchmark argument
+    bench_cache_file = os.path.join(base_directory, f"cached_bench_{benchmark_type}.pkl")
     if os.path.isfile(bench_cache_file):
+        # Load cached benchmark data
         with open(bench_cache_file, "rb") as f:
             bench_array, bench_node_counts, bench_elements = pickle.load(f)
-        print("Loaded oneCCL benchmark data from cache.")
+        print(f"Loaded {benchmark_type} benchmark data from cache.")
     else:
-        bench_results = process_oneccl_benchmarks(base_directory)
-        bench_array, bench_node_counts, bench_elements = prepare_benchmark_array(bench_results)
+        # Process benchmarks depending on the chosen type
+        if benchmark_type == "oneccl":
+            bench_results = process_oneccl_benchmarks(base_directory)
+            bench_array, bench_node_counts, bench_elements = prepare_benchmark_array(bench_results)
+        else:
+            # bench_results = process_osu_benchmarks(base_directory)
+            # bench_array, bench_node_counts, bench_elements = prepare_benchmark_array(bench_results)
+            print("OSU processing is not implemented. Exiting.")
+            exit(1)
 
         # Save the processed benchmark data to cache
         with open(bench_cache_file, "wb") as f:
             pickle.dump((bench_array, bench_node_counts, bench_elements), f)
-        print("Processed oneCCL benchmark data and saved to cache.")
+        print(f"Processed {benchmark_type} benchmark data and saved to cache.")
 
     # (3) Run the interactive Dash app
     run_interactive_dash_app(
