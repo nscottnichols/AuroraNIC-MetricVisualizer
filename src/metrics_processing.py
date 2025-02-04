@@ -6,11 +6,15 @@ import concurrent.futures  # For process and thread pooling
 
 def parse_metric_file(filepath):
     """
-    Parse the metric file and return a list of metric values (int).
+    Parse the metric file and return a Numpy array of metric values (int).
     """
-    with open(filepath, 'r') as file:
-        data = file.readlines()
-    return [int(line.split('@')[0]) for line in data]
+    try:
+        # Use np.loadtxt to split each line on '@' and take the first column.
+        data = np.loadtxt(filepath, delimiter='@', usecols=0, dtype=int)
+    except Exception as e:
+        print(f"Error parsing {filepath}: {e}")
+        data = np.array([], dtype=int)
+    return data
 
 def process_file_pair(before_path, after_path):
     """
@@ -22,8 +26,8 @@ def process_file_pair(before_path, after_path):
     after_metrics = parse_metric_file(after_path)
 
     # Compute raw differences for each metric entry
-    differences = [a - b for b, a in zip(before_metrics, after_metrics)]
-    return differences
+    differences = after_metrics - before_metrics
+    return differences.tolist()
 
 def process_subdir(subdir, metrics_dir, job_dir):
     """
