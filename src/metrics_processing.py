@@ -22,6 +22,63 @@ def process_file_pair(before_path, after_path):
     differences = [a - b for b, a in zip(before_metrics, after_metrics)]
     return differences
 
+def process_single_job(job_dir, base_dir):
+    """
+    Process a single job directory.
+    
+    Return per-job results:
+      - job_results: { (node_count, num_elements): [ [differences from a file pair], ... ] }
+      - job_results_nodes: { (node_count, num_elements): [ identifier (str) for each file pair ] }
+    """
+    job_node_map = {}
+    job_results = {}
+    job_results_nodes = {}
+    job_path = os.path.join(base_dir, job_dir)
+    metrics_dir = os.path.join(job_path, f"metrics_{job_dir}")
+
+    if not os.path.isdir(metrics_dir):
+        return job_results, job_results_nodes  # Skip if metrics directory doesn't exist
+
+    # Iterate over subdirectories in the metrics directory
+    for subdir in os.listdir(metrics_dir):
+        if '_' in subdir:
+            try:
+                node_count, num_elements = map(int, subdir.split('_'))
+            except ValueError:
+                continue  # Skip directories that don't match the expected pattern
+
+            subdir_path = os.path.join(metrics_dir, subdir)
+
+            # Collect 'before' and 'after' files along with their identifiers
+            before_files = {}
+            after_files = {}
+            identifiers = set()
+
+            for file in os.listdir(subdir_path):
+                if 'metric_before' in file:
+                    identifier = file.split('metric_before.')[1]
+                    before_files[identifier] = os.path.join(subdir_path, file)
+                    identifiers.add(identifier)
+                elif 'metric_after' in file:
+                    identifier = file.split('metric_after.')[1]
+                    after_files[identifier] = os.path.join(subdir_path, file)
+                    identifiers.add(identifier)
+
+            # Update job_node_map with any new identifiers
+            for identifier in identifiers:
+                if identifier not in job_node_map:
+                    job_node_map[identifier] = len(job_node_map)
+
+            # Ensure each 'before' file is paired with an 'after' file
+            for identifier in before_files.keys():
+                if identifier in after_files:
+                    differences = process_file_pair(before_files[identifier], after_files[identifier])
+
+                    key = (node_count, num_elements)
+                    job_results.setdefault(key, []).append(differences)
+                    job_results_nodes.setdefault(key, []).append(job_node_map[identifier])
+    return job_results, job_results_nodes
+
 def process_all_jobs(base_dir):
     """
     Process all job directories, create an integer map for nodes, and collect raw differences into dictionaries.
@@ -31,55 +88,27 @@ def process_all_jobs(base_dir):
     - results: { (node_count, num_elements): [[raw_differences_per_metric_entry_from_each_job]] }
     - results_nodes: { (node_count, num_elements): [list_of_node_ids_corresponding_to_node_map] }
     """
-    results = {}
     node_map = {}
+    results = {}
     results_nodes = {}
 
     for job_dir in os.listdir(base_dir):
         job_path = os.path.join(base_dir, job_dir)
-        metrics_dir = os.path.join(job_path, f"metrics_{job_dir}")
+        job_results, job_results_nodes = process_single_job(job_dir, base_dir)
+        # Merge the results from each job directory into the aggregated dictionaries
+        for key, diffs in job_results.items():
+            results.setdefault(key, []).extend(diffs)
+        for key, ids in job_results_nodes.items():
+            results_nodes.setdefault(key, []).extend(ids)
+    # Build a global node_map from all identifiers encountered
+    for id_list in aggregated_results_nodes.values():
+        for identifier in id_list:
+            if identifier not in node_map:
+                node_map[identifier] = len(node_map)
 
-        if not os.path.isdir(metrics_dir):
-            continue  # Skip if metrics directory doesn't exist
-
-        for subdir in os.listdir(metrics_dir):
-            if '_' in subdir:
-                try:
-                    node_count, num_elements = map(int, subdir.split('_'))
-                except ValueError:
-                    continue  # Skip directories that don't match the pattern
-
-                subdir_path = os.path.join(metrics_dir, subdir)
-
-                # Collect 'before' and 'after' files
-                before_files = {}
-                after_files = {}
-                identifiers = set()
-
-                for file in os.listdir(subdir_path):
-                    if 'metric_before' in file:
-                        identifier = file.split('metric_before.')[1]
-                        before_files[identifier] = os.path.join(subdir_path, file)
-                        identifiers.add(identifier)
-                    elif 'metric_after' in file:
-                        identifier = file.split('metric_after.')[1]
-                        after_files[identifier] = os.path.join(subdir_path, file)
-                        identifiers.add(identifier)
-
-                # Update node_map with any new identifiers
-                for identifier in identifiers:
-                    if identifier not in node_map:
-                        node_map[identifier] = len(node_map)
-
-                # Ensure each 'before' file is paired with an 'after' file
-                for identifier in before_files.keys():
-                    if identifier in after_files:
-                        differences = process_file_pair(before_files[identifier], after_files[identifier])
-
-                        key = (node_count, num_elements)
-                        results.setdefault(key, []).append(differences)
-                        results_nodes.setdefault(key, []).append(node_map[identifier])
-
+    # Fix identifier strings in results_nodes
+    for key, id_list in results_nodes.items():
+        aggregated_results_nodes[key] = [node_map[identifier] for identifier in id_list]
     return node_map, results, results_nodes
 
 def prepare_metric_array(results, num_interfaces, max_nodes):
