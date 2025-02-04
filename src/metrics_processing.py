@@ -76,9 +76,6 @@ def process_all_jobs(base_dir):
                     if identifier in after_files:
                         differences = process_file_pair(before_files[identifier], after_files[identifier])
 
-                        # Compute raw differences for each metric entry
-                        differences = [a - b for b, a in zip(before_metrics, after_metrics)]
-
                         key = (node_count, num_elements)
                         results.setdefault(key, []).append(differences)
                         results_nodes.setdefault(key, []).append(node_map[identifier])
