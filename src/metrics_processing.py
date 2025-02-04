@@ -82,13 +82,16 @@ def process_subdir(subdir, metrics_dir, job_dir):
 
 def process_single_job(job_dir, base_dir):
     """
-    Process a single job directory.
+    Process a single job directory and its subdirectories in parallel.
     
-    Return per-job results:
-      - job_results: { (node_count, num_elements): [ [differences from a file pair], ... ] }
-      - job_results_nodes: { (node_count, num_elements): [ identifier (str) for each file pair ] }
+    This function processes each subdirectory within a job directory concurrently using a ThreadPoolExecutor.
+    The file pair processing inside each subdirectory remains parallelized using its own ThreadPoolExecutor.
 
     Note: This function is called in parallel for each job directory.
+    
+    Returns:
+      - job_results: { (node_count, num_elements): [differences from file pairs] }
+      - job_results_nodes: { (node_count, num_elements): [identifiers from file pairs] }
     """
     job_results = {}
     job_results_nodes = {}
@@ -98,52 +101,22 @@ def process_single_job(job_dir, base_dir):
     if not os.path.isdir(metrics_dir):
         return job_results, job_results_nodes  # Skip if metrics directory doesn't exist
 
-    # Iterate over subdirectories in the metrics directory
-    for subdir in os.listdir(metrics_dir):
-        if '_' in subdir:
+    subdirs = os.listdir(metrics_dir)
+    # Process each subdirectory concurrently
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_to_subdir = {
+            executor.submit(process_subdir, subdir, metrics_dir, job_dir): subdir for subdir in subdirs
+        }
+        for future in concurrent.futures.as_completed(future_to_subdir):
+            subdir = future_to_subdir[future]
             try:
-                node_count, num_elements = map(int, subdir.split('_'))
-            except ValueError:
-                continue  # Skip directories that don't match the expected pattern
-
-            subdir_path = os.path.join(metrics_dir, subdir)
-
-            # Collect 'before' and 'after' files along with their identifiers
-            before_files = {}
-            after_files = {}
-            for file in os.listdir(subdir_path):
-                if 'metric_before' in file:
-                    identifier = file.split('metric_before.')[1]
-                    before_files[identifier] = os.path.join(subdir_path, file)
-                elif 'metric_after' in file:
-                    identifier = file.split('metric_after.')[1]
-                    after_files[identifier] = os.path.join(subdir_path, file)
-
-            # Process each file pair concurrently using a ThreadPoolExecutor.
-            differences_list = []
-            identifier_list = []
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future_to_identifier = {}
-                for identifier in before_files:
-                    if identifier in after_files:
-                        before_path = before_files[identifier]
-                        after_path = after_files[identifier]
-                        future = executor.submit(process_file_pair, before_path, after_path)
-                        future_to_identifier[future] = identifier
-
-                for future in concurrent.futures.as_completed(future_to_identifier):
-                    identifier = future_to_identifier[future]
-                    try:
-                        differences = future.result()
-                        differences_list.append(differences)
-                        identifier_list.append(identifier)
-                    except Exception as exc:
-                        print(f"Error processing identifier {identifier} in job {job_dir}: {exc}")
-
-            key = (node_count, num_elements)
-            if differences_list:
-                job_results.setdefault(key, []).extend(differences_list)
-                job_results_nodes.setdefault(key, []).extend(identifier_list)
+                subdir_result, subdir_result_nodes = future.result()
+                for key, diffs in subdir_result.items():
+                    job_results.setdefault(key, []).extend(diffs)
+                for key, ids in subdir_result_nodes.items():
+                    job_results_nodes.setdefault(key, []).extend(ids)
+            except Exception as exc:
+                print(f"Error processing subdir {subdir} in job {job_dir}: {exc}")
 
     return job_results, job_results_nodes
 
