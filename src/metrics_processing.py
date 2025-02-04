@@ -2,6 +2,7 @@
 
 import os
 import numpy as np
+import concurrent.futures  # For process and thread pooling
 
 def parse_metric_file(filepath):
     """
@@ -14,6 +15,8 @@ def parse_metric_file(filepath):
 def process_file_pair(before_path, after_path):
     """
     Helper function to process a pair of metric files and compute differences.
+
+    Note: This function is used inside a thread pool.
     """
     before_metrics = parse_metric_file(before_path)
     after_metrics = parse_metric_file(after_path)
@@ -29,8 +32,9 @@ def process_single_job(job_dir, base_dir):
     Return per-job results:
       - job_results: { (node_count, num_elements): [ [differences from a file pair], ... ] }
       - job_results_nodes: { (node_count, num_elements): [ identifier (str) for each file pair ] }
+
+    Note: This function is called in parallel for each job directory.
     """
-    job_node_map = {}
     job_results = {}
     job_results_nodes = {}
     job_path = os.path.join(base_dir, job_dir)
@@ -52,64 +56,93 @@ def process_single_job(job_dir, base_dir):
             # Collect 'before' and 'after' files along with their identifiers
             before_files = {}
             after_files = {}
-            identifiers = set()
-
             for file in os.listdir(subdir_path):
                 if 'metric_before' in file:
                     identifier = file.split('metric_before.')[1]
                     before_files[identifier] = os.path.join(subdir_path, file)
-                    identifiers.add(identifier)
                 elif 'metric_after' in file:
                     identifier = file.split('metric_after.')[1]
                     after_files[identifier] = os.path.join(subdir_path, file)
-                    identifiers.add(identifier)
 
-            # Update job_node_map with any new identifiers
-            for identifier in identifiers:
-                if identifier not in job_node_map:
-                    job_node_map[identifier] = len(job_node_map)
+            # Process each file pair concurrently using a ThreadPoolExecutor.
+            differences_list = []
+            identifier_list = []
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future_to_identifier = {}
+                for identifier in before_files:
+                    if identifier in after_files:
+                        before_path = before_files[identifier]
+                        after_path = after_files[identifier]
+                        future = executor.submit(process_file_pair, before_path, after_path)
+                        future_to_identifier[future] = identifier
 
-            # Ensure each 'before' file is paired with an 'after' file
-            for identifier in before_files.keys():
-                if identifier in after_files:
-                    differences = process_file_pair(before_files[identifier], after_files[identifier])
+                for future in concurrent.futures.as_completed(future_to_identifier):
+                    identifier = future_to_identifier[future]
+                    try:
+                        differences = future.result()
+                        differences_list.append(differences)
+                        identifier_list.append(identifier)
+                    except Exception as exc:
+                        print(f"Error processing identifier {identifier} in job {job_dir}: {exc}")
 
-                    key = (node_count, num_elements)
-                    job_results.setdefault(key, []).append(differences)
-                    job_results_nodes.setdefault(key, []).append(job_node_map[identifier])
+            key = (node_count, num_elements)
+            if differences_list:
+                job_results.setdefault(key, []).extend(differences_list)
+                job_results_nodes.setdefault(key, []).extend(identifier_list)
+
     return job_results, job_results_nodes
 
 def process_all_jobs(base_dir):
     """
-    Process all job directories, create an integer map for nodes, and collect raw differences into dictionaries.
+    Process all job directories in parallel and aggregate results.
+
+    Uses ProcessPoolExecutor to process multiple job directories concurrently.
+    Each job directory (via process_single_job) returns its own results.
+    The main process aggregates all results and then builds a global node_map.
+    The node_map is built after collecting all identifiers, and then results_nodes are converted to integer ids.
 
     Returns:
-    - node_map: {node_name: integer}
-    - results: { (node_count, num_elements): [[raw_differences_per_metric_entry_from_each_job]] }
-    - results_nodes: { (node_count, num_elements): [list_of_node_ids_corresponding_to_node_map] }
+      - node_map: {node_name: integer}
+      - results: { (node_count, num_elements): [[raw differences per metric entry from each job]] }
+      - results_nodes: { (node_count, num_elements): [list of node ids corresponding to node_map] }
     """
-    node_map = {}
-    results = {}
-    results_nodes = {}
+    aggregated_results = {}
+    aggregated_results_nodes = {}
 
-    for job_dir in os.listdir(base_dir):
-        job_path = os.path.join(base_dir, job_dir)
-        job_results, job_results_nodes = process_single_job(job_dir, base_dir)
-        # Merge the results from each job directory into the aggregated dictionaries
-        for key, diffs in job_results.items():
-            results.setdefault(key, []).extend(diffs)
-        for key, ids in job_results_nodes.items():
-            results_nodes.setdefault(key, []).extend(ids)
+    # List all job directories in base_dir
+    job_dirs = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))]
+
+    # Process each job directory in parallel using ProcessPoolExecutor for CPU-bound tasks
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        future_to_job = {executor.submit(process_single_job, job_dir, base_dir): job_dir
+                         for job_dir in job_dirs}
+
+        for future in concurrent.futures.as_completed(future_to_job):
+            job_dir = future_to_job[future]
+            try:
+                job_results, job_results_nodes = future.result()
+
+                # Merge the results from each job directory into the aggregated dictionaries
+                for key, diffs in job_results.items():
+                    aggregated_results.setdefault(key, []).extend(diffs)
+                for key, ids in job_results_nodes.items():
+                    aggregated_results_nodes.setdefault(key, []).extend(ids)
+
+            except Exception as exc:
+                print(f"Job directory {job_dir} generated an exception: {exc}")
+
     # Build a global node_map from all identifiers encountered
+    node_map = {}
     for id_list in aggregated_results_nodes.values():
         for identifier in id_list:
             if identifier not in node_map:
                 node_map[identifier] = len(node_map)
 
-    # Fix identifier strings in results_nodes
-    for key, id_list in results_nodes.items():
+    # Replace identifier strings in aggregated_results_nodes with their integer mapping
+    for key, id_list in aggregated_results_nodes.items():
         aggregated_results_nodes[key] = [node_map[identifier] for identifier in id_list]
-    return node_map, results, results_nodes
+
+    return node_map, aggregated_results, aggregated_results_nodes
 
 def prepare_metric_array(results, num_interfaces, max_nodes):
     """
