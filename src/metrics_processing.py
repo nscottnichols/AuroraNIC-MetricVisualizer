@@ -25,6 +25,61 @@ def process_file_pair(before_path, after_path):
     differences = [a - b for b, a in zip(before_metrics, after_metrics)]
     return differences
 
+def process_subdir(subdir, metrics_dir, job_dir):
+    """
+    Process a single subdirectory within a job directory.
+    
+    Returns:
+      - subdir_result: { (node_count, num_elements): [differences from file pairs] }
+      - subdir_result_nodes: { (node_count, num_elements): [identifiers from file pairs] }
+    """
+    subdir_result = {}
+    subdir_result_nodes = {}
+    if '_' in subdir:
+        try:
+            node_count, num_elements = map(int, subdir.split('_'))
+        except ValueError:
+            return subdir_result, subdir_result_nodes  # Skip if pattern doesn't match
+        subdir_path = os.path.join(metrics_dir, subdir)
+        before_files = {}
+        after_files = {}
+
+        # Collect 'before' and 'after' files in the subdirectory.
+        for file in os.listdir(subdir_path):
+            if 'metric_before' in file:
+                identifier = file.split('metric_before.')[1]
+                before_files[identifier] = os.path.join(subdir_path, file)
+            elif 'metric_after' in file:
+                identifier = file.split('metric_after.')[1]
+                after_files[identifier] = os.path.join(subdir_path, file)
+
+        # Process file pairs
+        differences_list = []
+        identifier_list = []
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_to_identifier = {}
+            for identifier in before_files:
+                if identifier in after_files:
+                    before_path = before_files[identifier]
+                    after_path = after_files[identifier]
+                    future = executor.submit(process_file_pair, before_path, after_path)
+                    future_to_identifier[future] = identifier
+
+            for future in concurrent.futures.as_completed(future_to_identifier):
+                identifier = future_to_identifier[future]
+                try:
+                    differences = future.result()
+                    differences_list.append(differences)
+                    identifier_list.append(identifier)
+                except Exception as exc:
+                    print(f"Error processing identifier {identifier} in subdir {subdir} of job {job_dir}: {exc}")
+
+        key = (node_count, num_elements)
+        if differences_list:
+            subdir_result.setdefault(key, []).extend(differences_list)
+            subdir_result_nodes.setdefault(key, []).extend(identifier_list)
+    return subdir_result, subdir_result_nodes
+
 def process_single_job(job_dir, base_dir):
     """
     Process a single job directory.
