@@ -23,73 +23,19 @@ def process_file_pair(before_path, after_path):
     Note: This function is used inside a thread pool.
     """
     before_metrics = parse_metric_file(before_path)
-    after_metrics = parse_metric_file(after_path)
+    after_metrics  = parse_metric_file(after_path)
 
     # Compute raw differences for each metric entry
     differences = after_metrics - before_metrics
     return differences.tolist()
 
-def process_subdir(subdir, metrics_dir, job_dir):
-    """
-    Process a single subdirectory within a job directory.
-    
-    Returns:
-      - subdir_result: { (node_count, num_elements): [differences from file pairs] }
-      - subdir_result_nodes: { (node_count, num_elements): [identifiers from file pairs] }
-    """
-    subdir_result = {}
-    subdir_result_nodes = {}
-    if '_' in subdir:
-        try:
-            node_count, num_elements = map(int, subdir.split('_'))
-        except ValueError:
-            return subdir_result, subdir_result_nodes  # Skip if pattern doesn't match
-        subdir_path = os.path.join(metrics_dir, subdir)
-        before_files = {}
-        after_files = {}
-
-        # Collect 'before' and 'after' files in the subdirectory.
-        for file in os.listdir(subdir_path):
-            if 'metric_before' in file:
-                identifier = file.split('metric_before.')[1]
-                before_files[identifier] = os.path.join(subdir_path, file)
-            elif 'metric_after' in file:
-                identifier = file.split('metric_after.')[1]
-                after_files[identifier] = os.path.join(subdir_path, file)
-
-        # Process file pairs
-        differences_list = []
-        identifier_list = []
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future_to_identifier = {}
-            for identifier in before_files:
-                if identifier in after_files:
-                    before_path = before_files[identifier]
-                    after_path = after_files[identifier]
-                    future = executor.submit(process_file_pair, before_path, after_path)
-                    future_to_identifier[future] = identifier
-
-            for future in concurrent.futures.as_completed(future_to_identifier):
-                identifier = future_to_identifier[future]
-                try:
-                    differences = future.result()
-                    differences_list.append(differences)
-                    identifier_list.append(identifier)
-                except Exception as exc:
-                    print(f"Error processing identifier {identifier} in subdir {subdir} of job {job_dir}: {exc}")
-
-        key = (node_count, num_elements)
-        if differences_list:
-            subdir_result.setdefault(key, []).extend(differences_list)
-            subdir_result_nodes.setdefault(key, []).extend(identifier_list)
-    return subdir_result, subdir_result_nodes
-
 def process_single_job(job_dir, base_dir):
     """
-    Process a single job directory and its subdirectories in parallel.
+    Process a single job directory.
     
-    This function processes each subdirectory within a job directory concurrently using a ThreadPoolExecutor.
-    The file pair processing inside each subdirectory remains parallelized using its own ThreadPoolExecutor.
+    This function scans the job's metrics directory,
+    collects file pairs from each subdirectory,
+    and uses a single ThreadPoolExecutor to process all file pairs concurrently.
 
     Note: This function is called in parallel for each job directory.
     
@@ -99,28 +45,69 @@ def process_single_job(job_dir, base_dir):
     """
     job_results = {}
     job_results_nodes = {}
+
     job_path = os.path.join(base_dir, job_dir)
     metrics_dir = os.path.join(job_path, f"metrics_{job_dir}")
-
     if not os.path.isdir(metrics_dir):
         return job_results, job_results_nodes  # Skip if metrics directory doesn't exist
 
-    subdirs = os.listdir(metrics_dir)
-    # Process each subdirectory concurrently
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future_to_subdir = {
-            executor.submit(process_subdir, subdir, metrics_dir, job_dir): subdir for subdir in subdirs
-        }
-        for future in concurrent.futures.as_completed(future_to_subdir):
-            subdir = future_to_subdir[future]
+    # List of futures with metadata: (future, key, identifier)
+    futures = []
+    # Create a thread pool to process all file pairs for this job.
+    # Adjust max_workers as appropriate (here set to 8).
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        for subdir in os.listdir(metrics_dir):
+            # Expect subdirectory names in the format: "<node_count>_<num_elements>"
+            if '_' not in subdir:
+                continue
             try:
-                subdir_result, subdir_result_nodes = future.result()
-                for key, diffs in subdir_result.items():
-                    job_results.setdefault(key, []).extend(diffs)
-                for key, ids in subdir_result_nodes.items():
-                    job_results_nodes.setdefault(key, []).extend(ids)
+                node_count, num_elements = map(int, subdir.split('_'))
+            except ValueError:
+                continue  # Skip unexpected subdirectory names
+            
+            key = (node_count, num_elements)
+            subdir_path = os.path.join(metrics_dir, subdir)
+            if not os.path.isdir(subdir_path):
+                continue
+
+            # Build dictionaries for file paths keyed by identifier.
+            before_files = {}
+            after_files  = {}
+            for filename in os.listdir(subdir_path):
+                if 'metric_before' in filename:
+                    parts = filename.split('metric_before.')
+                    if len(parts) < 2:
+                        continue
+                    identifier = parts[1]
+                    before_files[identifier] = os.path.join(subdir_path, filename)
+                elif 'metric_after' in filename:
+                    parts = filename.split('metric_after.')
+                    if len(parts) < 2:
+                        continue
+                    identifier = parts[1]
+                    after_files[identifier] = os.path.join(subdir_path, filename)
+            
+            # For every identifier that has both before and after files,
+            # schedule a file pair processing task.
+            for identifier in before_files:
+                if identifier in after_files:
+                    future = executor.submit(
+                        process_file_pair,
+                        before_files[identifier],
+                        after_files[identifier]
+                    )
+                    futures.append((future, key, identifier))
+        
+        # Collect results from the thread pool.
+        for future, key, identifier in futures:
+            try:
+                differences = future.result()
             except Exception as exc:
-                print(f"Error processing subdir {subdir} in job {job_dir}: {exc}")
+                print(f"Error processing file pair for identifier {identifier} in job {job_dir}: {exc}")
+                continue
+            if differences:
+                job_results.setdefault(key, []).append(differences)
+                job_results_nodes.setdefault(key, []).append(identifier)
 
     return job_results, job_results_nodes
 
@@ -153,15 +140,16 @@ def process_all_jobs(base_dir):
             job_dir = future_to_job[future]
             try:
                 job_results, job_results_nodes = future.result()
-
-                # Merge the results from each job directory into the aggregated dictionaries
-                for key, diffs in job_results.items():
-                    aggregated_results.setdefault(key, []).extend(diffs)
-                for key, ids in job_results_nodes.items():
-                    aggregated_results_nodes.setdefault(key, []).extend(ids)
-
             except Exception as exc:
                 print(f"Job directory {job_dir} generated an exception: {exc}")
+                continue
+
+            # Merge the results from each job directory into the aggregated dictionaries
+            for key, diffs in job_results.items():
+                aggregated_results.setdefault(key, []).extend(diffs)
+            for key, ids in job_results_nodes.items():
+                aggregated_results_nodes.setdefault(key, []).extend(ids)
+
 
     # Build a global node_map from all identifiers encountered
     node_map = {}
