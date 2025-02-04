@@ -11,6 +11,17 @@ def parse_metric_file(filepath):
         data = file.readlines()
     return [int(line.split('@')[0]) for line in data]
 
+def process_file_pair(before_path, after_path):
+    """
+    Helper function to process a pair of metric files and compute differences.
+    """
+    before_metrics = parse_metric_file(before_path)
+    after_metrics = parse_metric_file(after_path)
+
+    # Compute raw differences for each metric entry
+    differences = [a - b for b, a in zip(before_metrics, after_metrics)]
+    return differences
+
 def process_all_jobs(base_dir):
     """
     Process all job directories, create an integer map for nodes, and collect raw differences into dictionaries.
@@ -63,8 +74,7 @@ def process_all_jobs(base_dir):
                 # Ensure each 'before' file is paired with an 'after' file
                 for identifier in before_files.keys():
                     if identifier in after_files:
-                        before_metrics = parse_metric_file(before_files[identifier])
-                        after_metrics = parse_metric_file(after_files[identifier])
+                        differences = process_file_pair(before_files[identifier], after_files[identifier])
 
                         # Compute raw differences for each metric entry
                         differences = [a - b for b, a in zip(before_metrics, after_metrics)]
