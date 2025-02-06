@@ -43,8 +43,8 @@ def parse_osu_file(filepath):
     # Search for up to two blocks of data in the file.
     while i < n:
         line = lines[i].strip()
-        # A new block typically starts with: "# OSU MPI Allreduce Latency Test ..."
-        if line.startswith("# OSU MPI Allreduce Latency Test"):
+        # A new block typically starts with: "# OSU MPI" and contains "... Latency Test ..."
+        if "OSU MPI" in line and "Latency Test" in line:
             # Move past this header line.
             i += 1
             # Skip any additional comment lines that start with '#'.
