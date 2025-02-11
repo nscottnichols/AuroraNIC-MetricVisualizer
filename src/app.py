@@ -3,7 +3,7 @@
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from dash import Dash, dcc, html, Input, Output
+from dash import Dash, dcc, html, Input, Output, State
 from plotly.colors import qualitative
 
 def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_names,
@@ -30,8 +30,8 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
     zero_metrics = (metric_sums == 0)
 
     # Build metric dropdown options
-    all_metric_options = [{'label': metric_names[i], 'value': i} for i in range(metrics_per_interface)]
-    nonzero_metric_options = [{'label': metric_names[i], 'value': i} 
+    all_metric_options = [{'label': f"{i}: {metric_names[i]}", 'value': i} for i in range(metrics_per_interface)]
+    nonzero_metric_options = [{'label': f"{i}: {metric_names[i]}", 'value': i} 
                               for i in range(metrics_per_interface) if not zero_metrics[i]]
 
     # Build a dictionary of nodes_for_node_count
@@ -106,18 +106,34 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         )
     ], style={'textAlign': 'center', 'margin': '20px'})
 
-    # -----------------------------------------------------------------------
-
-    # Create the Dash app
+    # ------------------- Create the Dash app -------------------
     app = Dash(__name__)
 
-    # Layout: metric controls + metric figures + benchmark controls + benchmark figures
+    # ------------------- Layout -------------------
     app.layout = html.Div([
 
         html.H1("Interactive Heatmap Analysis for Metric Differences and Line Plot Slices per Node Count",
                 style={'textAlign': 'center'}),
 
-        # Metric controls (show/hide zero metrics, metric selection, etc.)
+        # --- Calculated Metric Editor ---
+        html.Div([
+            html.H3("Calculated Metric Editor"),
+            html.Div([
+                html.Label("Metric Name:"),
+                dcc.Input(id="calc-metric-name", type="text", placeholder="Enter calculated metric name", style={'width': '300px'}),
+                html.Br(),
+                html.Label("Formula (use 'm' for built-in metrics):"),
+                dcc.Input(id="calc-metric-formula", type="text", placeholder="e.g., (m[0]-m[1])/(m[2]+1)", style={'width': '300px'}),
+                html.Br(),
+                html.Button("Add Calculated Metric", id="add-calc-metric-button", n_clicks=0),
+                html.Div(id="calc-metric-message", style={'color': 'green', 'margin-top': '10px'})
+            ], style={'display': 'inline-block', 'margin': '20px'})
+        ], style={'textAlign': 'center'}),
+
+        # dcc.Store to keep calculated metrics (a dict mapping metric name to {name, formula})
+        dcc.Store(id='calculated-metrics-store', data={}),
+
+        # --- Metric controls ---
         html.Div([
             html.Label("Show only non-zero metrics:"),
             dcc.Checklist(
@@ -148,7 +164,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             )
         ], style={'textAlign': 'center', 'margin': '20px'}),
 
-        # Metric Plots (2 figures: heatmap + line)
+        # --- Metric Plots ---
         html.Div([
             html.Div([
                 html.H2("Heatmaps (Metric Data)", style={'textAlign': 'center'}),
@@ -161,9 +177,9 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             ], style={'display': 'inline-block', 'verticalAlign': 'top'})
         ], style={'width': '100%', 'textAlign': 'center', 'marginBottom': '50px'}),
 
-        # OneCCL Benchmark Section
+        # --- Benchmark Section ---
         html.Hr(),
-        html.H2("oneCCL Benchmark Data", style={'textAlign': 'center'}),
+        html.H2("Benchmark Data", style={'textAlign': 'center'}),
         html.Div([
             bench_iteration_dropdown,
             bench_stat_dropdown,
@@ -181,66 +197,115 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                 dcc.Graph(id='bench-line-figure')
             ], style={'display': 'inline-block', 'verticalAlign': 'top'})
         ], style={'width': '100%', 'textAlign': 'center'}),
-
     ])
 
-    # Callback to update the metric controls
+    # ------------------- Callbacks -------------------
+
+    # (A) Callback to add a new calculated metric to the store.
+    @app.callback(
+        [Output('calculated-metrics-store', 'data'),
+         Output('calc-metric-message', 'children')],
+        [Input('add-calc-metric-button', 'n_clicks')],
+        [State('calc-metric-name', 'value'),
+         State('calc-metric-formula', 'value'),
+         State('calculated-metrics-store', 'data')]
+    )
+    def add_calculated_metric(n_clicks, name, formula, calc_metrics):
+        if n_clicks is None or n_clicks == 0:
+            # No clicks yet; do nothing.
+            return calc_metrics, ""
+        if not name or not formula:
+            return calc_metrics, "Please provide both a name and a formula."
+        # Check for duplicate names.
+        if name in calc_metrics:
+            return calc_metrics, f"A calculated metric named '{name}' already exists."
+        # (Optional) test the formula with a dummy array
+        try:
+            dummy = np.zeros((metrics_per_interface, 1, 1, 1))
+            _ = eval(formula, {"np": np, "m": dummy})
+        except Exception as e:
+            return calc_metrics, f"Error in formula: {e}"
+        # Add the new calculated metric
+        calc_metrics[name] = {"name": name, "formula": formula}
+        return calc_metrics, f"Calculated metric '{name}' added."
+
+    # (B) Callback to update the metric-dropdown options (combining built-in and calculated metrics).
     @app.callback(
         Output('metric-dropdown', 'options'),
-        Input('hide-zero-metrics', 'value')
+        [Input('hide-zero-metrics', 'value'),
+         Input('calculated-metrics-store', 'data')]
     )
-    def update_dropdown_options(hide_zero):
+    def update_dropdown_options(hide_zero, calc_metrics):
+        # Start with built-in options
         if 'hide' in hide_zero:
-            return nonzero_metric_options
+            options = nonzero_metric_options.copy()
         else:
-            return all_metric_options
+            options = all_metric_options.copy()
+        # Add calculated metrics: use value as "calc:<name>"
+        if calc_metrics:
+            for name, details in calc_metrics.items():
+                options.append({'label': f"Calculated: {details['name']}", 'value': f"calc:{details['name']}"})
+        return options
 
+    # (C) Main callback to update figures.
     # Build a list of Inputs for each node-dropdown
     node_inputs = [Input(f'node-dropdown-{nc}', 'value') for nc in node_counts]
-
-    # ------------------- UPDATE FIGURES CALLBACK -------------------
     @app.callback(
-        # Return *four* figures: two metric figures + two benchmark figures
-        [
-            Output('heatmap-figure', 'figure'),
-            Output('line-figure', 'figure'),
-            Output('bench-heatmap-figure', 'figure'),
-            Output('bench-line-figure', 'figure')
-        ],
-        [
-            Input('metric-dropdown', 'value'),
-            Input('hide-zero-metrics', 'value'),
-            Input('node-count-line-dropdown', 'value'),
-            *node_inputs,  # one input per node-dropdown (one per node_count)
-            Input('bench-iteration-dropdown', 'value'),
-            Input('bench-stat-dropdown', 'value'),
-            Input('bench-line-axis-dropdown', 'value')
-        ]
+        [Output('heatmap-figure', 'figure'),
+         Output('line-figure', 'figure'),
+         Output('bench-heatmap-figure', 'figure'),
+         Output('bench-line-figure', 'figure')],
+        [Input('metric-dropdown', 'value'),
+         Input('hide-zero-metrics', 'value'),
+         Input('node-count-line-dropdown', 'value'),
+         *node_inputs,  # one input per node-dropdown (one per node_count)
+         Input('bench-iteration-dropdown', 'value'),
+         Input('bench-stat-dropdown', 'value'),
+         Input('bench-line-axis-dropdown', 'value'),
+         Input('calculated-metrics-store', 'data')]
     )
-    def update_figure(selected_metric_index,
+    def update_figure(selected_metric_value,
                       hide_zero,
                       selected_line_node_count,
                       *args):
         """
-        args = node_selections + (bench_iteration, bench_stat)
+        args = node_selections + (bench_iteration, bench_stat, bench_line_axis, calc_metrics_store)
         where node_selections is a tuple of length len(node_counts).
         """
         # Separate the node-dropdown selections from the new bench iteration/stat/axis
-        node_selections = args[:len(node_counts)]
-        bench_iteration = args[len(node_counts)]
-        bench_stat      = args[len(node_counts) + 1]
-        bench_line_axis = args[len(node_counts) + 2]
+        num_node_dropdowns = len(node_counts)
+        node_selections = args[:num_node_dropdowns]
+        bench_iteration = args[num_node_dropdowns]
+        bench_stat      = args[num_node_dropdowns + 1]
+        bench_line_axis = args[num_node_dropdowns + 2]
+        calc_metrics_store = args[num_node_dropdowns + 3]
+
+        # Determine if the selected metric is built-in or calculated.
+        is_calculated = False
+        formula = None
+        calc_metric_name = None
+        if isinstance(selected_metric_value, int):
+            is_calculated = False
+        elif isinstance(selected_metric_value, str) and selected_metric_value.startswith("calc:"):
+            is_calculated = True
+            calc_metric_name = selected_metric_value[5:]
+            if calc_metrics_store and calc_metric_name in calc_metrics_store:
+                formula = calc_metrics_store[calc_metric_name]["formula"]
+            else:
+                # If something is amiss, fall back to built-in index 0.
+                is_calculated = False
+                selected_metric_value = 0
 
         # ------------------- (1) Metric Plots -------------------
         # Map selected nodes per node_count
         selected_nodes_by_nc = {}
         for i, nc in enumerate(node_counts):
             selected_nodes = node_selections[i]
-            if not selected_nodes:  # If None or empty, use all nodes
+            if not selected_nodes:  # if none selected, use all nodes
                 selected_nodes = nodes_for_node_count[nc]
             selected_nodes_by_nc[nc] = set(selected_nodes)
 
-        # Subplot titles for the metric plots
+        # Prepare subplot titles for metric plots
         subplot_titles = [
             "Interface 1",
             "Interface 2",
@@ -253,6 +318,23 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             "Interface 8"
         ]
 
+        # For calculated metrics, compute an array per interface using the custom formula.
+        calc_metric_arrays = None
+        if is_calculated:
+            calc_metric_arrays = []
+            for interface_index in range(num_interfaces):
+                # Get the full built-in metric data for this interface.
+                m_data = metric_array[interface_index].copy()  # shape: (metrics_per_interface, Nx, Ny, max_nodes)
+                # Replace -1 with np.nan
+                m_data = np.where(m_data == -1, np.nan, m_data)
+                try:
+                    calc_array = eval(formula, {"np": np, "m": m_data})
+                    # Expect calc_array shape to be (Nx, Ny, max_nodes)
+                except Exception as e:
+                    calc_array = np.full((Nx, Ny, m_data.shape[-1]), np.nan)
+                calc_metric_arrays.append(calc_array)
+
+        # ------------------- (1) Metric Heatmaps -------------------
         # Compute the 8 interface heatmaps for the selected metric
         # Each heatmap is (node_counts, element_counts), averaged over nodes
         # metric_array: (num_interfaces, metrics_per_interface, node_counts, element_counts, max_nodes)
@@ -277,16 +359,18 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                         node_name = reverse_node_map[nid]
                         if node_name in allowed_nodes:
                             node_pos = node_ids.index(nid)
-                            val = metric_array[interface_index, selected_metric_index, x, y, node_pos]
-                            if val != -1:
+                            if is_calculated:
+                                val = calc_metric_arrays[interface_index][x, y, node_pos]
+                            else:
+                                val = metric_array[interface_index, selected_metric_value, x, y, node_pos]
+                            if val != -1 and not np.isnan(val):
                                 filtered_values.append(val)
 
                     if filtered_values:
                         hm_data[x, y] = np.nansum(filtered_values)
                     else:
                         hm_data[x, y] = 0
-
-            # If there are nans, replace them with 0
+            # Replace any remaining NaN with 0
             hm_data = np.nan_to_num(hm_data, nan=0)
             interface_heatmaps.append(hm_data)
 
@@ -390,8 +474,12 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                 )
 
         # Make the figure square
+        if is_calculated:
+            metric_label = f"Calculated: {calc_metric_name}"
+        else:
+            metric_label = metric_names[selected_metric_value]
         heatmap_fig.update_layout(
-            title=f"Selected Metric: {metric_names[selected_metric_index]}",
+            title=f"Selected Metric: {metric_label}",
             width=1000,
             height=1000,
             coloraxis=dict(
@@ -415,7 +503,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             margin=dict(l=50, r=150, t=50, b=50)
         )
 
-        # ---- Build the line plots for the metric data ----
+        # ------------------- (2) Line Plots -------------------
         line_fig = make_subplots(
             rows=3, cols=3,
             subplot_titles=subplot_titles,
@@ -452,8 +540,11 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                 for nid_i, nid in enumerate(node_ids):
                     node_name = reverse_node_map[nid]
                     if node_name in allowed_nodes_line:
-                        val = metric_array[interface_index, selected_metric_index, x_idx, y, nid_i]
-                        if val == -1:
+                        if is_calculated:
+                            val = calc_metric_arrays[interface_index][x_idx, y, nid_i]
+                        else:
+                            val = metric_array[interface_index, selected_metric_value, x_idx, y, nid_i]
+                        if val == -1 or np.isnan(val):
                             val = 0
                         val_map[node_name] = val
 
@@ -557,13 +648,13 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                 )
 
         line_fig.update_layout(
-            title=f"Line Plots for Node Count {selected_line_node_count} (Metric: {metric_names[selected_metric_index]})",
+            title=f"Line Plots for Node Count {selected_line_node_count} (Metric: {metric_label})",
             width=1000,
             height=1000,
             margin=dict(l=50, r=50, t=50, b=50)
         )
 
-        # ------------------- (2) OneCCL Benchmark Plots -------------------
+        # ------------------- (3) OneCCL Benchmark Plots -------------------
 
         # Prepare log2 versions of the benchmark axes
         log2_bench_node_counts = np.log2(bench_node_counts)
@@ -698,7 +789,4 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         return heatmap_fig, line_fig, bench_heatmap_fig, bench_line_fig
 
     # Run the Dash app
-    #app.run_server(debug=False, host='0.0.0.0', port=8050)
-    app.run(debug=False, host='0.0.0.0', port=13717)
-
-
+    app.run_server(debug=False, host='0.0.0.0', port=8050)
