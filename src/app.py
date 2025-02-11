@@ -6,6 +6,11 @@ from plotly.subplots import make_subplots
 from dash import Dash, dcc, html, Input, Output, State
 from plotly.colors import qualitative
 
+# Global cache for computed calculated metric arrays.
+# Keys are the calculated metric names.
+#FIXME move cache to app state. --> cache = app.computed_..._cache
+computed_calc_metrics_cache = {}
+
 def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_names,
                              node_map, results_nodes,
                              bench_array, bench_node_counts, bench_elements):
@@ -227,6 +232,10 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             return calc_metrics, f"Error in formula: {e}"
         # Add the new calculated metric
         calc_metrics[name] = {"name": name, "formula": formula}
+
+        # Clear any cached result for this metric if it already exists.
+        computed_calc_metrics_cache.pop(name, None)
+
         return calc_metrics, f"Calculated metric '{name}' added."
 
     # (B) Callback to update the metric-dropdown options (combining built-in and calculated metrics).
@@ -318,21 +327,29 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
             "Interface 8"
         ]
 
+        # --- Caching the calculated metric arrays ---
         # For calculated metrics, compute an array per interface using the custom formula.
         calc_metric_arrays = None
         if is_calculated:
-            calc_metric_arrays = []
-            for interface_index in range(num_interfaces):
-                # Get the full built-in metric data for this interface.
-                m_data = metric_array[interface_index].copy()  # shape: (metrics_per_interface, Nx, Ny, max_nodes)
-                # Replace -1 with np.nan
-                m_data = np.where(m_data == -1, np.nan, m_data)
-                try:
-                    calc_array = eval(formula, {"np": np, "m": m_data})
-                    # Expect calc_array shape to be (Nx, Ny, max_nodes)
-                except Exception as e:
-                    calc_array = np.full((Nx, Ny, m_data.shape[-1]), np.nan)
-                calc_metric_arrays.append(calc_array)
+            # Use the metric name as key.
+            key = calc_metric_name
+            global computed_calc_metrics_cache
+            if key in computed_calc_metrics_cache:
+                calc_metric_arrays = computed_calc_metrics_cache[key]
+            else:
+                calc_metric_arrays = []
+                for interface_index in range(num_interfaces):
+                    # Get the full built-in metric data for this interface.
+                    m_data = metric_array[interface_index].copy()  # shape: (metrics_per_interface, Nx, Ny, max_nodes)
+                    # Replace -1 with np.nan
+                    m_data = np.where(m_data == -1, np.nan, m_data)
+                    try:
+                        calc_array = eval(formula, {"np": np, "m": m_data})
+                        # Expect calc_array shape to be (Nx, Ny, max_nodes)
+                    except Exception as e:
+                        calc_array = np.full((Nx, Ny, m_data.shape[-1]), np.nan)
+                    calc_metric_arrays.append(calc_array)
+                computed_calc_metrics_cache[key] = calc_metric_arrays
 
         # ------------------- (1) Metric Heatmaps -------------------
         # Compute the 8 interface heatmaps for the selected metric
