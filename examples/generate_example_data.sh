@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Base directory
-BASE_DIR="./examples/jobs"
+BASE_DIR="./examples/jobs/oneccl"
 
 # Define number of steps for nodes and elements
 NUM_NODES=3            # Number of times to multiply by 2 for nodes
@@ -9,7 +9,10 @@ NUM_ELEMENT_COUNTS=3   # Number of times to multiply by 10 for elements
 
 # Define number of metrics and interfaces
 NUM_METRICS=5
-NUM_INTERFACES=3
+NUM_INTERFACES=8
+
+# Define ranks per node
+RPN=12
 
 # Generate metric_names.txt file
 METRIC_NAMES_FILE="metric_names.txt"
@@ -27,7 +30,7 @@ for ((NODE_INDEX = 0; NODE_INDEX < NUM_NODES; NODE_INDEX++)); do
     
     # Create metric output directory
     METRIC_DIR="${BASE_DIR}/${JOB_NAME}/metrics_${JOB_NAME}"
-    mkdir -p "${BASE_DIR}/${METRIC_DIR}"
+    mkdir -p "${METRIC_DIR}"
     
     # Create benchmark output directory
     BENCH_DIR="${BASE_DIR}/${JOB_NAME}/out_${JOB_NAME}"
@@ -67,9 +70,7 @@ for ((NODE_INDEX = 0; NODE_INDEX < NUM_NODES; NODE_INDEX++)); do
 
         # Generate synthetic oneCCL benchmark output files
         for ((NODE_ID = 0; NODE_ID < NODE; NODE_ID++)); do
-            JOB_NAME="examplejob"  # Example job name
-            RANKS=$((NODE * 12))  # Simulated ranks count
-            RPN=12  # Ranks per node (example value)
+            RANKS=$((NODE * RPN))  # Simulated ranks count
             
             OUT_FILE="${BENCH_DIR}/oneccl_allreduce_${JOB_NAME}_${NODE}_${RANKS}_${RPN}_${ELEM}_sycl_ccl_gpu_out_w1.txt"
 

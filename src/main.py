@@ -24,7 +24,7 @@ def parse_args():
     Parse command-line arguments.
     """
     parser = argparse.ArgumentParser(description="Process metrics and benchmarks for interactive Dash app.")
-    parser.add_argument("--base_dir", type=str, default="/lus/gila/projects/atlas_aesp_CNDA/oneCCL_test/jobs_test",
+    parser.add_argument("--base_dir", type=str, default="examples/jobs/oneccl",
                         help="Base directory path containing all job/benchmark data.")
     parser.add_argument("--num_interfaces", type=int, default=8,
                         help="Number of NIC interfaces.")
