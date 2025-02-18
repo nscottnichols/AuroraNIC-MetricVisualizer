@@ -60,7 +60,7 @@ for ((NODE_INDEX = 0; NODE_INDEX < NUM_NODES; NODE_INDEX++)); do
                     echo "0@${NODE}.${I}" >> "$BEFORE_FILE"
                     
                     # Compute flattened 4D index
-                    INDEX=$(( (((NODE_INDEX * NUM_ELEMENT_COUNTS + ELEM_INDEX) * NUM_METRICS + M) * NUM_INTERFACES) + I ))
+                    INDEX=$(( (((NODE_ID * NUM_ELEMENT_COUNTS + ELEM_INDEX) * NUM_METRICS + M) * NUM_INTERFACES) + I ))
                     
                     # metric_after content
                     echo "${INDEX}@${NODE}.${I}" >> "$AFTER_FILE"
