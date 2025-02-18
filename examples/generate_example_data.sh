@@ -78,10 +78,11 @@ for ((NODE_INDEX = 0; NODE_INDEX < NUM_NODES; NODE_INDEX++)); do
             echo "#bytes   N/A   N/A   t_min[usec]  t_max[usec]  t_avg[usec]  stddev" >> "$OUT_FILE"
 
             for ((i = 0; i < 3; i++)); do
-                T_MIN=$(awk -v min=10 -v max=50 'BEGIN{srand(); print min+rand()*(max-min)}')
-                T_MAX=$(awk -v min=50 -v max=100 'BEGIN{srand(); print min+rand()*(max-min)}')
-                T_AVG=$(awk -v min=20 -v max=80 'BEGIN{srand(); print min+rand()*(max-min)}')
-                STDDEV=$(awk -v min=1 -v max=5 'BEGIN{srand(); print min+rand()*(max-min)}')
+                T_MIN=$(echo "scale=3; 10 + ($RANDOM % 40) + ($RANDOM/32767)" | bc)
+                T_MAX=$(echo "scale=3; 50 + ($RANDOM % 50) + ($RANDOM/32767)" | bc)
+                T_AVG=$(echo "scale=3; 20 + ($RANDOM % 60) + ($RANDOM/32767)" | bc)
+                STDDEV=$(echo "scale=3; 1 + ($RANDOM % 4) + ($RANDOM/32767)" | bc)
+
                 printf "1024   0   0   %.3f   %.3f   %.3f   %.3f\n" "$T_MIN" "$T_MAX" "$T_AVG" "$STDDEV" >> "$OUT_FILE"
             done
         done
