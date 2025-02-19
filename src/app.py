@@ -6,11 +6,6 @@ from plotly.subplots import make_subplots
 from dash import Dash, dcc, html, Input, Output, State
 from plotly.colors import qualitative
 
-# Global cache for computed calculated metric arrays.
-# Keys are the calculated metric names.
-#FIXME move cache to app state. --> cache = app.computed_..._cache
-computed_calc_metrics_cache = {}
-
 def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_names,
                              node_map, results_nodes,
                              bench_array, bench_node_counts, bench_elements):
@@ -113,6 +108,11 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
 
     # ------------------- Create the Dash app -------------------
     app = Dash(__name__)
+
+    # Attach cache for computed calculated metric arrays.
+    # Keys are the calculated metric names.
+    app.computed_calc_metrics_cache = {}
+
 
     # ------------------- Layout -------------------
     app.layout = html.Div([
@@ -234,7 +234,8 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         calc_metrics[name] = {"name": name, "formula": formula}
 
         # Clear any cached result for this metric if it already exists.
-        computed_calc_metrics_cache.pop(name, None)
+        if name in app.computed_calc_metrics_cache:
+            del app.computed_calc_metrics_cache[name]
 
         return calc_metrics, f"Calculated metric '{name}' added."
 
@@ -333,9 +334,8 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
         if is_calculated:
             # Use the metric name as key.
             key = calc_metric_name
-            global computed_calc_metrics_cache
-            if key in computed_calc_metrics_cache:
-                calc_metric_arrays = computed_calc_metrics_cache[key]
+            if key in app.computed_calc_metrics_cache:
+                calc_metric_arrays = app.computed_calc_metrics_cache[key]
             else:
                 calc_metric_arrays = []
                 for interface_index in range(num_interfaces):
@@ -349,7 +349,7 @@ def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_n
                     except Exception as e:
                         calc_array = np.full((Nx, Ny, m_data.shape[-1]), np.nan)
                     calc_metric_arrays.append(calc_array)
-                computed_calc_metrics_cache[key] = calc_metric_arrays
+                app.computed_calc_metrics_cache[key] = calc_metric_arrays
 
         # ------------------- (1) Metric Heatmaps -------------------
         # Compute the 8 interface heatmaps for the selected metric
