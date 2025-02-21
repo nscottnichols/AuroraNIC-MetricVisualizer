@@ -124,6 +124,22 @@ def create_layout(metric_array,
             )
         ], style={'textAlign': 'center', 'margin': '20px'}),
 
+        #Aggregation Tabs for the heatmap
+        html.Div([
+            html.Label("Select Aggregation:"),
+            dcc.Tabs(
+                id='heatmap-stat-tabs',
+                value='avg',  # default aggregation is average
+                children=[
+                    dcc.Tab(label='Min', value='min'),
+                    dcc.Tab(label='Max', value='max'),
+                    dcc.Tab(label='Average', value='avg'),
+                    dcc.Tab(label='Std Dev', value='std'),
+                    dcc.Tab(label='Sum', value='sum')
+                ]
+            )
+        ], style={'textAlign': 'center', 'margin': '20px'}),
+
         # Node dropdowns
         html.Div(node_dropdowns, style={'textAlign': 'center'}),
 
