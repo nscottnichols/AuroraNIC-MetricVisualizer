@@ -207,14 +207,14 @@ def register_callbacks(app,
         heatmap_fig = build_metric_heatmaps(
             metric_array, calc_metric_arrays, is_calculated, selected_metric_value,
             selected_nodes_by_nc, node_counts, element_counts, reverse_node_map, 
-            metric_names, calc_metric_name
+            results_nodes, metric_names, calc_metric_name
         )
 
         # ---------------- Line Figures for metric data ----------------
         line_fig = build_metric_line_plots(
             metric_array, calc_metric_arrays, is_calculated, selected_metric_value,
             selected_nodes_by_nc, node_counts, element_counts, reverse_node_map, 
-            metric_names, calc_metric_name, selected_line_node_count
+            results_nodes, metric_names, calc_metric_name, selected_line_node_count
         )
 
         # ---------------- Benchmark Heatmap and Lines ----------------
