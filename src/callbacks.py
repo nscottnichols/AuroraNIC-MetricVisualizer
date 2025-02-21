@@ -416,7 +416,7 @@ def build_metric_heatmaps(metric_array, calc_metric_arrays, is_calculated, selec
 
     # Set the metric label and make the figure square
     heatmap_fig.update_layout(
-        title=f"Selected Metric: {metric_label} (Aggregation: {aggregation.capitalize()})",
+        title=f"Selected Metric: {metric_label} (Aggregation: {selected_aggregation.capitalize()})",
         width=1000,
         height=1000,
         coloraxis=dict(
