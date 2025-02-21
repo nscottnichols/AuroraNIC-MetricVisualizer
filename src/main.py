@@ -18,7 +18,6 @@ from osu_processing import (
     process_osu_benchmarks
 )
 
-#from app import run_interactive_dash_app
 from app import create_app
 
 def parse_args():
