@@ -1,3 +1,5 @@
+# src/main.py
+
 import os
 import pickle
 import argparse
@@ -16,8 +18,7 @@ from osu_processing import (
     process_osu_benchmarks
 )
 
-from app import run_interactive_dash_app
-
+from app import create_app
 
 def parse_args():
     """
@@ -34,6 +35,24 @@ def parse_args():
                         help="Select which benchmark to process: 'oneccl' or 'osu'.")
     return parser.parse_args()
 
+def run_interactive_dash_app(metric_array, node_counts, element_counts, metric_names,
+                             node_map, results_nodes,
+                             bench_array, bench_node_counts, bench_elements):
+    """
+    Entry point: create the Dash app and run the server.
+    """
+    app = create_app(
+        metric_array=metric_array,
+        node_counts=node_counts,
+        element_counts=element_counts,
+        metric_names=metric_names,
+        node_map=node_map,
+        results_nodes=results_nodes,
+        bench_array=bench_array,
+        bench_node_counts=bench_node_counts,
+        bench_elements=bench_elements
+    )
+    app.run_server(debug=False, host='0.0.0.0', port=8050)
 
 def main():
     # (0) Parse command line arguments
