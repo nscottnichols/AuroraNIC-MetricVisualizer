@@ -17,6 +17,10 @@ def create_app(metric_array,
     """
     app = Dash(__name__)
 
+    # Attach cache for computed calculated metric arrays.
+    # Keys are the calculated metric names.
+    app.computed_calc_metrics_cache = {}
+
     # Build layout
     app.layout = create_layout(
         metric_array=metric_array,
