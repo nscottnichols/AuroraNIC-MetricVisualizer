@@ -130,6 +130,7 @@ def register_callbacks(app,
          Input('hide-zero-metrics', 'value'),
          Input('node-count-line-dropdown', 'value'),
          *node_inputs,  # one input per node-dropdown (one per node_count)
+         Input('heatmap-stat-tabs', 'value'),
          Input('bench-iteration-dropdown', 'value'),
          Input('bench-stat-dropdown', 'value'),
          Input('bench-line-axis-dropdown', 'value'),
@@ -149,10 +150,19 @@ def register_callbacks(app,
         # Separate the node-dropdown selections from others (bench iteration/stat/axis and calculated metrics)
         num_node_dropdowns = len(node_counts)
         node_selections = args[:num_node_dropdowns]
-        bench_iteration = args[num_node_dropdowns]
-        bench_stat      = args[num_node_dropdowns + 1]
-        bench_line_axis = args[num_node_dropdowns + 2]
-        calc_metrics_store = args[num_node_dropdowns + 3]
+        selected_aggregation = args[num_node_dropdowns]
+        bench_iteration = args[num_node_dropdowns + 1]
+        bench_stat      = args[num_node_dropdowns + 2]
+        bench_line_axis = args[num_node_dropdowns + 3]
+        calc_metrics_store = args[num_node_dropdowns + 4]
+
+        # Map selected nodes per node_count
+        selected_nodes_by_nc = {}
+        for i, nc in enumerate(node_counts):
+            selected_nodes = node_selections[i]
+            if not selected_nodes:  # if none selected, use all nodes
+                selected_nodes = nodes_for_node_count[nc]
+            selected_nodes_by_nc[nc] = set(selected_nodes)
 
         # Determine if the selected metric is built-in or calculated
         is_calculated = False
@@ -171,14 +181,6 @@ def register_callbacks(app,
                 # Fallback to built-in index 0 if formula not found
                 selected_metric_value = 0
                 is_calculated = False
-
-        # Map selected nodes per node_count
-        selected_nodes_by_nc = {}
-        for i, nc in enumerate(node_counts):
-            selected_nodes = node_selections[i]
-            if not selected_nodes:  # if none selected, use all nodes
-                selected_nodes = nodes_for_node_count[nc]
-            selected_nodes_by_nc[nc] = set(selected_nodes)
 
         # Possibly compute the calculated metrics array
         # For calculated metrics, compute an array per interface using the custom formula.
@@ -207,7 +209,7 @@ def register_callbacks(app,
         heatmap_fig = build_metric_heatmaps(
             metric_array, calc_metric_arrays, is_calculated, selected_metric_value,
             selected_nodes_by_nc, node_counts, element_counts, reverse_node_map, 
-            results_nodes, metric_names, calc_metric_name
+            results_nodes, metric_names, calc_metric_name, selected_aggregation
         )
 
         # ---------------- Line Figures for metric data ----------------
@@ -236,10 +238,10 @@ def register_callbacks(app,
 
 def build_metric_heatmaps(metric_array, calc_metric_arrays, is_calculated, selected_metric_value,
                           selected_nodes_by_nc, node_counts, element_counts, reverse_node_map, 
-                          results_nodes, metric_names, calc_metric_name):
+                          results_nodes, metric_names, calc_metric_name, selected_aggregation):
     """
-    Constructs the 3x3 subplot figure with 8 interface heatmaps (outer subplots)
-    and a combined heatmap in the center.
+    Constructs the 3x3 subplot figure with 8 interface heatmaps (outer subplots) and a combined heatmap (in the center),
+    using the specified statistical aggregation (min, max, avg, std, or sum) over the node dimension.
     """
     num_interfaces, _, Nx, Ny, _ = metric_array.shape
 
@@ -249,7 +251,7 @@ def build_metric_heatmaps(metric_array, calc_metric_arrays, is_calculated, selec
         "Interface 6", "Interface 7", "Interface 8"
     ]
 
-    # Compute the 8 interface heatmaps for the selected metric
+    # Compute the 8 interface heatmaps for the selected metric and aggregation
     # Each heatmap is (node_counts, element_counts), averaged over nodes
     # metric_array: (num_interfaces, metrics_per_interface, node_counts, element_counts, max_nodes)
     # The interface_heatmaps are computed with per-(node_count, element_count) filtering
@@ -281,14 +283,35 @@ def build_metric_heatmaps(metric_array, calc_metric_arrays, is_calculated, selec
                             val = metric_array[interface_index, selected_metric_value, x, y, node_pos]
                         if val != -1 and not np.isnan(val):
                             filtered_values.append(val)
-                hm_data[x, y] = np.nansum(filtered_values) if filtered_values else 0
+                if filtered_values:
+                    if selected_aggregation == 'min':
+                        hm_data[x, y] = np.nanmin(filtered_values)
+                    elif selected_aggregation == 'max':
+                        hm_data[x, y] = np.nanmax(filtered_values)
+                    elif selected_aggregation == 'avg':
+                        hm_data[x, y] = np.nanmean(filtered_values)
+                    elif selected_aggregation == 'std':
+                        hm_data[x, y] = np.nanstd(filtered_values)
+                    elif selected_aggregation == 'sum':
+                        hm_data[x, y] = np.nansum(filtered_values)
+                else:
+                    hm_data[x, y] = 0
 
         # Replace any remaining NaNs with 0
         hm_data = np.nan_to_num(hm_data, copy=False, nan=0)
         interface_heatmaps.append(hm_data)
 
-    # Compute combined heatmap (sum of all interfaces)
-    combined_heatmap = np.sum(interface_heatmaps, axis=0)
+    # Compute combined heatmap (sum of all interfaces) using selected aggregation
+    if selected_aggregation == 'min':
+        combined_heatmap = np.nanmin(interface_heatmaps, axis=0)
+    elif selected_aggregation == 'max':
+        combined_heatmap = np.nanmax(interface_heatmaps, axis=0)
+    elif selected_aggregation == 'avg':
+        combined_heatmap = np.nanmean(interface_heatmaps, axis=0)
+    elif selected_aggregation == 'std':
+        combined_heatmap = np.nanstd(interface_heatmaps, axis=0)
+    elif selected_aggregation == 'sum':
+        combined_heatmap = np.nansum(interface_heatmaps, axis=0)
 
     # Prepare customdata arrays for hover information
     nc_mesh, ne_mesh = np.meshgrid(node_counts, element_counts)
@@ -393,7 +416,7 @@ def build_metric_heatmaps(metric_array, calc_metric_arrays, is_calculated, selec
 
     # Set the metric label and make the figure square
     heatmap_fig.update_layout(
-        title=f"Selected Metric: {metric_label}",
+        title=f"Selected Metric: {metric_label} (Aggregation: {aggregation.capitalize()})",
         width=1000,
         height=1000,
         coloraxis=dict(
@@ -646,7 +669,7 @@ def build_bench_heatmap(bench_array, bench_node_counts, bench_elements, bench_it
     )
 
     bench_heatmap_fig.update_layout(
-        title=f"OneCCL Bench Heatmap (Iteration={bench_iteration}, Stat={['t_min','t_max','t_avg','stddev'][bench_stat]})",
+        title=f"Bench Heatmap (Iteration={bench_iteration}, Stat={['t_min','t_max','t_avg','stddev'][bench_stat]})",
         width=600,
         height=600,
         margin=dict(l=50, r=50, t=80, b=50),
@@ -740,7 +763,7 @@ def build_bench_line_plots(bench_array, bench_node_counts, bench_elements,
         )
 
     bench_line_fig.update_layout(
-        title=f"OneCCL Benchmark Lines (Iteration={bench_iteration}, Stat={['t_min','t_max','t_avg','stddev'][bench_stat]})",
+        title=f"Benchmark Lines (Iteration={bench_iteration}, Stat={['t_min','t_max','t_avg','stddev'][bench_stat]})",
         width=600,
         height=600,
         margin=dict(l=50, r=50, t=80, b=50),
