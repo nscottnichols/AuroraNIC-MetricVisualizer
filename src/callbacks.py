@@ -1,10 +1,15 @@
 # src/callbacks.py
 
 import numpy as np
+from collections import OrderedDict
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from plotly.colors import qualitative
 from dash import Input, Output, State
+
+from expressions import evaluate_formula, FormulaError
+
+MAX_CALCULATED_METRIC_CACHE_ENTRIES = 32
 
 def register_callbacks(app,
                        metric_array,
@@ -79,12 +84,14 @@ def register_callbacks(app,
         if name in calc_metrics:
             return calc_metrics, f"A calculated metric named '{name}' already exists."
 
-        # Test the formula with a dummy array (optional)
+        # Validate the formula with the same shape used during calculation.
         try:
-            dummy = np.zeros((metrics_per_interface, 1, 1, 1))
-            _ = eval(formula, {"np": np, "m": dummy})
-        except Exception as e:
-            return calc_metrics, f"Error in formula: {e}"
+            dummy = np.zeros(
+                (metrics_per_interface, Nx, Ny, max_nodes), dtype=metric_array.dtype
+            )
+            evaluate_formula(formula, dummy)
+        except FormulaError as exc:
+            return calc_metrics, f"Error in formula: {exc}"
 
         # Add the new calculated metric
         calc_metrics[name] = {"name": name, "formula": formula}
@@ -186,9 +193,9 @@ def register_callbacks(app,
         # For calculated metrics, compute an array per interface using the custom formula.
         calc_metric_arrays = None
         if is_calculated:
-            # Use the metric name as key.
-            key = calc_metric_name
+            key = (calc_metric_name, formula)
             if key in app.computed_calc_metrics_cache:
+                app.computed_calc_metrics_cache.move_to_end(key)
                 calc_metric_arrays = app.computed_calc_metrics_cache[key]
             else:
                 calc_metric_arrays = []
@@ -198,12 +205,13 @@ def register_callbacks(app,
                     # Replace -1 with np.nan
                     m_data = np.where(m_data == -1, np.nan, m_data)
                     try:
-                        calc_array = eval(formula, {"np": np, "m": m_data})
-                        # Expect calc_array shape to be (Nx, Ny, max_nodes)
-                    except Exception:
+                        calc_array = evaluate_formula(formula, m_data)
+                    except FormulaError:
                         calc_array = np.full((Nx, Ny, m_data.shape[-1]), np.nan)
                     calc_metric_arrays.append(calc_array)
                 app.computed_calc_metrics_cache[key] = calc_metric_arrays
+                if len(app.computed_calc_metrics_cache) > MAX_CALCULATED_METRIC_CACHE_ENTRIES:
+                    app.computed_calc_metrics_cache.popitem(last=False)
 
         # ---------------- Heatmap Figures for metric data ----------------
         heatmap_fig = build_metric_heatmaps(

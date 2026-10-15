@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aurora-nic-metric-visualizer"
+version = "0.8.0"
+description = "Selection-driven NIC trace exploration for AuroraNIC"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.3.5,<3",
+    "dash>=3.0,<5",
+    "plotly>=6.2,<7",
+    "perfetto>=0.58.2",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+browser = ["playwright>=1.49"]
+ctf = []  # Guarded THAPI/LTTng reader is built in; general CTF uses site-provided bt2.
+pftrace = ["perfetto>=0.58.2"]
+waitress = ["waitress>=3.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+explorer = ["assets/*.css", "assets/*.js", "data/*.txt", "data/*.json"]

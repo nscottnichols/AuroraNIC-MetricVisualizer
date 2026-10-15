@@ -1,0 +1,17 @@
+{
+  "approved_root": "/absolute/path/to/approved/traces",
+  "initial_dataset_id": "allreduce-2node",
+  "datasets": [
+    {
+      "dataset_id": "allreduce-2node",
+      "trace_path": "allreduce-2node/trace",
+      "cache_path": "allreduce-2node/cache.npz",
+      "trace_format": "ctf",
+      "trace_run_id": "allreduce-2node",
+      "trace_source_fingerprint": "sha256:replace-with-source-fingerprint",
+      "trace_reader_version": "babeltrace2-validated",
+      "trace_clock_domain": "single-monotonic-source",
+      "trace_synchronization_evidence": "single producer clock"
+    }
+  ]
+}

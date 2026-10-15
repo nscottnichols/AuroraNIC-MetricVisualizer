@@ -1,0 +1,8 @@
+# Optional pinned direct runtime dependencies.
+# Install the application separately: python -m pip install -e '.[waitress]'
+# These direct dependency pins are not a complete transitive lockfile.
+dash==4.4.1
+numpy==2.3.5
+plotly==6.5.2
+perfetto==0.58.2
+waitress==3.0.2

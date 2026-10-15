@@ -1,0 +1,33 @@
+# Local Python environments, bytecode, test caches, and build output.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.coverage
+htmlcov/
+
+# Machine-specific configuration, captured traces, and generated runtime files.
+.env
+.env.*
+!.env.example
+sunspot.env
+*.env.local
+runs/
+traces/
+artifacts/
+.cache/
+.nicviz-cache/
+*.pftrace
+*.log
+*.stdout
+*.pid
+
+# Local historical records and generated evidence; docs describe the current code.
+/docs/history/
+/docs/validation/
+/docs/wireframes/

@@ -1,116 +1,96 @@
-# AuroraNIC-MetricVisualizer
+# Aurora NIC Explorer
 
-AuroraNIC-MetricVisualizer is a Python-based tool designed for processing and visualizing performance metrics for ALCF's Aurora Cassini NICs. The tool calculates raw differences between "before" and "after" metric data, organizes results by node and element counts, and generates visualizations to explore NIC performance trends.
+A Dash/Plotly application for exploring THAPI CXI counters from raw CTF traces
+and binary `.pftrace` files. Select physical nodes/NICs and a time range, compare
+traffic or derived metrics, and export the selected measurements.
 
-Future enhancements will add interactive dashboards powered by Plotly for detailed and dynamic analyses.
+## Install and launch
 
----
-
-## Features
-
-- **Metrics Parsing:** Extract performance metrics from hierarchical job directories.
-- **Raw Difference Analysis:** Compute "before" and "after" differences for each metric entry.
-- **Heatmap Visualization:** Generate heatmaps illustrating metric differences across node counts and element counts.
-- **Support for ALCF's Aurora Cassini NICs:** Optimized for analyzing Aurora NIC data.
-- **Interactive Visualization (Coming Soon):** Explore NIC performance data with Plotly-based dashboards.
-
----
-
-## Installation
-
-Clone the repository and install the required dependencies:
+Use Python 3.11 or later from this application directory:
 
 ```bash
-git clone https://github.com/yourusername/AuroraNIC-MetricVisualizer.git
-cd AuroraNIC-MetricVisualizer
-pip install -r requirements.txt
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[waitress]'
+python src/main.py --browse-root /path/to/runs --server waitress
 ```
 
----
+Open `http://127.0.0.1:8050/`. The file picker browses paths on the application
+server. Choose a CTF directory or `.pftrace` file, then select **Open selected
+trace**. Opening runs asynchronously with cancellation and visible errors; a
+failed import preserves the previous dataset. Extract trace archives before
+opening them.
 
-## Usage
-
-### 1. Directory Structure
-
-Organize your Aurora NIC job data as follows:
-
-```
-base_directory/
-└── job_dir/
-    └── metrics_job_dir/
-        └── node_count_num_elements/
-            ├── metric_before.identifier
-            └── metric_after.identifier
-```
-
-### 2. Running the Script
-
-Set the `base_directory` in the script to point to your job data directory and run the tool:
+To open a trace at startup:
 
 ```bash
-python aurora_nic_visualizer.py
+python src/main.py --trace /path/to/run/ctf --server waitress
+python src/main.py --trace /path/to/run/timeline.pftrace --server waitress
 ```
 
-Heatmaps for each metric will be saved in the `figures/` directory.
+`--browse-root` restricts browsing and imports to one directory tree. Its default
+is the working directory, or the parent of an initial trace. Run
+`python src/main.py --help` for all options. `requirements.txt` provides optional
+pins for direct runtime dependencies; it is not a complete transitive lockfile.
 
----
+The CTF reader uses installed Babeltrace 2 Python bindings when available, and
+otherwise a built-in reader for supported THAPI/LTTng layouts. Choose
+`--ctf-reader portable` or `--ctf-reader babeltrace2` explicitly when needed.
+Unsupported layouts fail with an error. Binary pftrace uses the `perfetto`
+Python schema without downloading a Trace Processor binary.
 
-## Heatmap Visualization
+`--demo` opens synthetic data. `--trace-ui legacy` opens the compatibility report,
+and `--legacy-inputs` selects the text-counter/benchmark workflow.
 
-The generated heatmaps show raw differences for each metric across combinations of node counts and element counts. Each heatmap provides insights into how Aurora Cassini NIC performance varies with system configuration.
+## Explore a trace
 
-### Example Heatmap
+**Auto** shows a population heatmap or a single-NIC trend. Select a node/device
+row, brush a time interval, and use **Back** to restore the previous selection.
+Populations above 64 NICs group by node automatically; grouping and paging also
+support explicit physical-device inspection. Pages share a color scale. Gray
+cells indicate unavailable values; observed zero remains distinct.
 
-![Heatmap Example](path/to/example_heatmap.png)
+Search metric families, readable names or hardware IDs, and save favorites.
+Raw-counter selectors contain only counters encountered in the loaded trace.
+The bundled catalog is a reference superset; it does not establish what a run
+requested or sampled. Supply `--trace-requested-counter-file` only for a known
+run inventory. Name-derived labels do not establish counter units or semantics.
 
----
+Expand **Metric definition & calculation** for formulas, inputs, units and
+caveats. Save A/B intervals to compare the current device/metric scope.
+**Saved views** stores up to 12 named selections and display settings in the
+browser tab; downloaded views can be imported for the same trace fingerprint.
+JSON exports include formulas and measurement evidence. CSV exports contain
+the full selected population. Display row search and paging do not alter that
+population; use the node/NIC filters to change scientific scope.
 
-## Upcoming Features
+The **Open trace** dialog supports keyboard navigation and Escape to close.
+Press **?** for interaction help. See [metrics](docs/METRICS.md) for numerical
+definitions and [configuration](docs/CONFIGURATION.md) for topology, calibration,
+cache behavior and input limits.
 
-- **Interactive Dashboards:** Create interactive visualizations using Plotly for:
-  - Filtering by node count, element count, or metric type.
-  - Exploring time-series plots for selected metrics.
-  - Zooming and panning for detailed views of performance trends.
+The server uses one shared active dataset across browser tabs. It binds to
+loopback by default; non-loopback binding requires explicit opt-in. For remote
+use, run one server on the analysis host and connect through an SSH local
+forward. This single-user application has no public authentication service.
 
-- **Dynamic CLI Configuration:** Add support for passing directory paths, filters, and output formats via command-line arguments.
+## Development
 
-- **Parallel Processing:** Optimize processing for large datasets using parallelism.
+```bash
+python -m pip install -e '.[waitress,test,browser]'
+python -m pytest -q
+```
 
-- **Exportable Results:** Save processed data as CSV or JSON files for further analysis.
+Browser tests need Playwright and a Chromium installation:
 
----
+```bash
+python -m playwright install chromium
+python -m pytest -q tests/test_explorer_browser.py
+```
 
-## Contributions
-
-We welcome contributions from the community! To contribute:
-
-1. Fork the repository.
-2. Create a new branch for your feature or bug fix.
-3. Commit your changes and push the branch to your fork.
-4. Open a pull request with a description of your changes.
-
----
-
-## License
-
-This project is licensed under the BSD 3-Clause License. See the `LICENSE` file for details.
-
----
-
-## About ALCF's Aurora Cassini NICs
-
-Aurora, the supercomputer at the Argonne Leadership Computing Facility (ALCF), features cutting-edge Cassini network interface cards (NICs) for high-performance computing. This tool is specifically designed to help researchers and engineers analyze and improve NIC performance by providing clear and actionable visualizations of key performance metrics.
-
-For more information about Aurora, visit [ALCF Aurora](https://www.alcf.anl.gov).
-
----
-
-## Contact
-
-For questions, suggestions, or collaboration opportunities, please open an issue.
-
----
-
-### Stay Updated!
-
-This project is actively being developed, with major features planned for future releases. Follow the repository to stay updated on new developments!
+Browser tests accept `NICVIZ_CHROMIUM=/path/to/chromium` for an existing browser.
+Tests requiring external captures skip when the source data is unavailable.
+The real-capture and HTTP checks are available as
+`scripts/validate_real_capture.py` and `scripts/validate_runtime.py`; use each
+script's `--help` for its required inputs. See [architecture](docs/ARCHITECTURE.md)
+for the reader, storage, analysis and interface modules.

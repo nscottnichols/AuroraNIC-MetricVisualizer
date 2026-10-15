@@ -1,0 +1,83 @@
+.node-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.node-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.node-nic-card {
+  padding: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface);
+}
+
+.node-nic-card .stat-value {
+  margin: 0.4rem 0;
+}
+
+.state-badge {
+  display: inline-block;
+  margin-top: 0.5rem;
+  border: 1px solid currentColor;
+  border-radius: 0.25rem;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.state-ready { color: var(--ready); }
+.state-zero { color: var(--zero); }
+.state-partial { color: var(--partial); }
+.state-missing { color: var(--missing); }
+.state-unsupported { color: var(--unsupported); }
+.state-invalid { color: var(--invalid); }
+
+.nic-workspace {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+
+.chart-mode {
+  margin: 0 0 0.75rem;
+}
+
+.evidence-drawer {
+  margin-top: 0.9rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: #fbfdff;
+}
+
+.evidence-drawer summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.evidence-drawer ul {
+  margin: 0.6rem 0 0;
+  padding-left: 1.3rem;
+}
+
+.legacy-report {
+  margin-top: 1.25rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: 0.5rem;
+  background: #fff;
+}
+
+.legacy-report > summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 700;
+}
